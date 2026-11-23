@@ -385,7 +385,7 @@ function collectCoin(px,py){ coinsGot++; coinsEl.textContent=coinsGot; SFX.coin(
 function die(px,py){ if(deadT||invT>0) return; deadT=1; SFX.pop(); shakeT=14; burst(px,py,40,['#D20000','#FF6B6B','#9E0000','#fff'],1.4); popText={x:px,y:py-16,t:40}; lives--; updHud(); }
 function afterDeath(){ // called by modes each frame while deadT>0; returns true when respawned
   deadT++; if(deadT<=70) return false; deadT=0;
-  if(lives<=0){ state='over'; musicStop(); SFX.over(); $('overText').textContent=`Level ${LV.li+1} (${LV.name}): je had ${collected} van de ${tot.items} categorieën en ${coinsGot} ballonnetjes in je wagen. Tijd: ${fmt(frames)}.`; $('ovOver').hidden=false; return false; }
+  if(lives<=0){ state='over'; statEnd(LV,'gameover',frames); musicStop(); SFX.over(); $('overText').textContent=`Level ${LV.li+1} (${LV.name}): je had ${collected} van de ${tot.items} categorieën en ${coinsGot} ballonnetjes in je wagen. Tijd: ${fmt(frames)}.`; $('ovOver').hidden=false; return false; }
   invT=90; MODE.respawn(); toast('Nieuwe ballon!'); return true;
 }
 const flicker=()=>invT>0&&Math.floor(invT/4)%2===1;
@@ -402,6 +402,20 @@ const heroName=w=>(w||HERO)==='meisje'?'het clownmeisje':'het clowntje';
 function setHero(w){ HERO=w==='meisje'?'meisje':'clown'; store.set(HERO_KEY,HERO); }
 function records(){ const r=store.get(REC_KEY); return r&&typeof r==='object'&&!Array.isArray(r)?r:{}; }
 const recKey=lv=>lv.game.id+':'+lv.li;
+/* ---------- anonymous play statistics ----------
+   Counts page views and how levels end (start / gehaald / gameover), nothing about the player: no cookie, no id,
+   nothing in storage. STATS_URL is filled in by build_site.py (STATS); empty means nothing is ever sent.
+   Sent as a GoatCounter hit: p = path or event name, e = event, t = title, r = referrer, s = screen width. */
+const STATS_URL=/*STATS-URL*/'';
+function statSend(p,ev){ try{ if(!STATS_URL||typeof location==='undefined') return;
+    if(location.protocol==='file:'||/(localhost$|^127\.|^10\.|^192\.168\.|^0\.0\.0\.0$)/.test(location.hostname||'')) return;
+    const d={p,e:ev?'true':'',t:ev?'':document.title||'',r:ev?'':document.referrer||'',s:(window.screen&&window.screen.width)||'',b:0,rnd:Math.random().toString(36).slice(2,7)};
+    const u=STATS_URL+'?'+Object.keys(d).filter(k=>d[k]!=='').map(k=>k+'='+encodeURIComponent(d[k])).join('&');
+    if(!(navigator.sendBeacon&&navigator.sendBeacon(u))) new Image().src=u;
+  }catch(e){} }
+const statLevel=(lv,what)=>statSend('spel/'+lv.game.id+'/'+(lv.li+1)+'/'+what,true);
+const durBucket=f=>{ const s=f/60; return s<30?'0-30s':s<60?'30-60s':s<120?'1-2min':s<300?'2-5min':'5min+'; };
+function statEnd(lv,what,f,stars){ statLevel(lv,what); statSend('duur/'+lv.game.id+'/'+(lv.li+1)+'/'+what+'/'+durBucket(f),true); if(stars) statSend('sterren/'+lv.game.id+'/'+(lv.li+1)+'/'+stars,true); }
 const starsOf=(cards,lost)=>cards>=10?(lost===0?3:2):1; // ★ uitgespeeld, ★★ alle 10 kaartjes, ★★★ en geen ballon kwijt
 const starStr=n=>'★'.repeat(n)+'☆'.repeat(3-n), starHtml=n=>'★'.repeat(n)+(n<3?`<span class="off">${'★'.repeat(3-n)}</span>`:'');
 
@@ -1834,6 +1848,7 @@ function play(idx,fresh){
   MODE.init(); buildTouch(); updHud(); state='play'; musicStart(LV.song,LV.bpm,LV.tr);
   toast(`Level ${LV.li+1} · ${LV.name} (${LV.sub})`,2600);
   renderNav();
+  statLevel(LV,'start');
   cv.focus();
 }
 function restart(){ play(lvIdx,LV.li===0); }
@@ -1848,6 +1863,7 @@ function win(){
   const stars=starsOf(collected,3-lives), recs=records(), k=recKey(LV), prev=recs[k]&&typeof recs[k].score==='number'?recs[k]:null, beat=!!prev&&score>prev.score;
   recs[k]={score:Math.max(score,prev?prev.score:0),stars:Math.max(stars,prev&&prev.stars||0),frames:prev&&!beat?prev.frames:frames,date:new Date().toISOString().slice(0,10)};
   const saved=store.set(REC_KEY,recs); if(beat) rate='Nieuw record! 🎉';
+  statEnd(LV,'gehaald',frames,stars);
   $('winSub').textContent=last?`${LV.game.name} uitgespeeld · bedankt voor je bezoek`:`level ${LV.li+1} klaar · volgende: "${nxt.name}" (${nxt.sub})`;
   $('btnAgain').textContent=last?'Nog een keer vanaf level 1':'Naar level '+(LV.li+2)+' →';
   $('receipt').innerHTML=`<div class="h"><img src="img/logo.png" alt="J-Martens.nl" style="height:34px;width:auto;display:block;margin:0 auto 4px"><small>online feestwinkel · Raamsdonk</small><small>kassabon · ${LV.game.name} · level ${LV.li+1}: ${LV.name}</small></div>`+
@@ -1935,6 +1951,7 @@ function renderNav(){
 function boot(){
   if(document.fonts&&document.fonts.load) Promise.all([document.fonts.load('900 16px Grandstander'),document.fonts.load('700 16px Grandstander')]).catch(()=>{});
   requestAnimationFrame(loop);
+  statSend(location.pathname||'/',false);
   const m=/[?&]level=(\d+)/.exec(location.search||''); if(m){ const li=Math.min(ACTIVE_GAMES[0].levels.length,Math.max(1,+m[1]))-1; play(li,li===0); } // deep link: <spel>.html?level=2
 }
 window.__feest={play,step,records,starsOf,SONGS,get HERO(){return HERO},draw:t=>{ctx.clearRect(0,0,W,H); if(MODE) MODE.draw(t); drawSeason(t);},THEME,pickTheme,seasonLine,keys,key:onKey,debug:()=>MODE&&MODE.debug?MODE.debug():null,LEVELS,GAMES,ACTIVE_GAMES,FIXED_GAME,get state(){return state},get frames(){return frames},get collected(){return collected},get lives(){return lives},get deadT(){return deadT},get tot(){return tot},get lvIdx(){return lvIdx},get LV(){return LV},mode:()=>MODE,win,items};

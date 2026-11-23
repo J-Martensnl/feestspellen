@@ -13,6 +13,11 @@ Joins the parts in src/ into one script and writes:
 import os, re, shutil, zipfile
 
 VERSION = '2.3'
+# Anonymous statistics (GoatCounter, hosted or self-hosted): the count address, e.g. 'https://CODE.goatcounter.com/count'.
+# Empty = the built pages send nothing. artifact.html (tests, development) never sends anything.
+STATS = ''
+assert STATS == '' or re.fullmatch(r"https://[a-z0-9.-]+/count", STATS), STATS
+STATS_MARK = "/*STATS-URL*/''"
 DATE = '22 november 2026'
 PARTS = ['head.part', 'js1.part', 'segs.part', 'levels.part', 'js2_platform.part', 'js3_flappy.part',
          'js4_snake.part', 'js5_tetris.part', 'js7_memory.part', 'js8_catch.part', 'js9_route.part', 'js10_pop.part', 'js11_sort.part', 'js6_flow.part']
@@ -52,6 +57,8 @@ open('artifact.html', 'w', encoding='utf-8', newline='').write(src)  # alles op 
 src = re.sub(r"window\.__feest=\{.*?\};\n", "", src)
 assert '__feest' not in src
 assert src.count("const FIXED_GAME=null;") == 1
+assert src.count(STATS_MARK) == 1
+src = src.replace(STATS_MARK, repr(STATS))
 
 
 def wrap(body, title, description, extra_css=''):
@@ -98,6 +105,8 @@ js1 = open('src/js1.part', encoding='utf-8').read()
 rules = re.findall(r'/\*THEME-RULES\*/\n(.*?)/\*END-THEME-RULES\*/', js1, flags=re.S); assert len(rules) == 1
 assert hub.count('/*THEME-RULES*/') == 1
 hub = hub.replace('/*THEME-RULES*/', rules[0].strip())
+assert hub.count(STATS_MARK) == 1
+hub = hub.replace(STATS_MARK, repr(STATS))
 nav = ''.join(f'    <a href="{g["id"]}.html">{g["name"]}</a>\n' for g in JS_GAMES)
 cards = ''.join(f'    <a class="lv" href="{g["id"]}.html">{open(f"src/hub/{g["id"]}.svg", encoding="utf-8").read().strip()}'
                 f'<span class="badge">{g["style"]}</span><div class="t">{g["name"]}</div><div class="s">{g["blurb"]}</div>'

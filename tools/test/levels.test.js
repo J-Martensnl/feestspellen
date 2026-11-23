@@ -348,3 +348,26 @@ describe('level flow', () => {
     assert.match(sandbox.document.getElementById('btnAgain').textContent, /vanaf level 1/);
   });
 });
+
+describe('anonymous statistics', () => {
+  const fs = require('node:fs'), os = require('node:os'), path = require('node:path');
+  const hitsOf = sandbox => { const hits = []; sandbox.navigator.sendBeacon = u => { hits.push(decodeURIComponent(u)); return true; }; return hits; };
+  it('without a count address nothing is sent', () => {
+    const { F, sandbox } = loadGame({ seed: 1 }); const hits = hitsOf(sandbox);
+    F.play(0, true); F.win();
+    assert.deepEqual(hits, []);
+  });
+  it('with one: start, outcome, duration and stars per level, and nothing that identifies a player', () => {
+    const html = fs.readFileSync(path.join(__dirname, '..', '..', 'artifact.html'), 'utf8');
+    assert.equal(html.split("/*STATS-URL*/''").length, 2);
+    const tmp = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'feest-')), 'artifact.html');
+    fs.writeFileSync(tmp, html.replace("/*STATS-URL*/''", "'https://x.goatcounter.com/count'"));
+    const storage = memStorage();
+    const { F, sandbox } = loadGame({ seed: 1, html: tmp, storage }); const hits = hitsOf(sandbox);
+    F.play(0, true); F.win();
+    const id = F.LV.game.id, names = hits.map(u => /[?&]p=([^&]*)/.exec(u)[1]);
+    assert.deepEqual(names, [`spel/${id}/1/start`, `spel/${id}/1/gehaald`, `duur/${id}/1/gehaald/0-30s`, `sterren/${id}/1/1`]);
+    for (const u of hits) { assert.ok(u.startsWith('https://x.goatcounter.com/count?'), u); assert.match(u, /[?&]e=true/); }
+    assert.deepEqual([...storage.data.keys()], ['feestrun:v1:records']);
+  });
+});

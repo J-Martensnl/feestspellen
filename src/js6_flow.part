@@ -12,6 +12,7 @@ function play(idx,fresh){
   MODE.init(); buildTouch(); updHud(); state='play'; musicStart(LV.song,LV.bpm,LV.tr);
   toast(`Level ${LV.li+1} · ${LV.name} (${LV.sub})`,2600);
   renderNav();
+  statLevel(LV,'start');
   cv.focus();
 }
 function restart(){ play(lvIdx,LV.li===0); }
@@ -26,6 +27,7 @@ function win(){
   const stars=starsOf(collected,3-lives), recs=records(), k=recKey(LV), prev=recs[k]&&typeof recs[k].score==='number'?recs[k]:null, beat=!!prev&&score>prev.score;
   recs[k]={score:Math.max(score,prev?prev.score:0),stars:Math.max(stars,prev&&prev.stars||0),frames:prev&&!beat?prev.frames:frames,date:new Date().toISOString().slice(0,10)};
   const saved=store.set(REC_KEY,recs); if(beat) rate='Nieuw record! 🎉';
+  statEnd(LV,'gehaald',frames,stars);
   $('winSub').textContent=last?`${LV.game.name} uitgespeeld · bedankt voor je bezoek`:`level ${LV.li+1} klaar · volgende: "${nxt.name}" (${nxt.sub})`;
   $('btnAgain').textContent=last?'Nog een keer vanaf level 1':'Naar level '+(LV.li+2)+' →';
   $('receipt').innerHTML=`<div class="h"><img src="img/logo.png" alt="J-Martens.nl" style="height:34px;width:auto;display:block;margin:0 auto 4px"><small>online feestwinkel · Raamsdonk</small><small>kassabon · ${LV.game.name} · level ${LV.li+1}: ${LV.name}</small></div>`+
@@ -113,6 +115,7 @@ function renderNav(){
 function boot(){
   if(document.fonts&&document.fonts.load) Promise.all([document.fonts.load('900 16px Grandstander'),document.fonts.load('700 16px Grandstander')]).catch(()=>{});
   requestAnimationFrame(loop);
+  statSend(location.pathname||'/',false);
   const m=/[?&]level=(\d+)/.exec(location.search||''); if(m){ const li=Math.min(ACTIVE_GAMES[0].levels.length,Math.max(1,+m[1]))-1; play(li,li===0); } // deep link: <spel>.html?level=2
 }
 window.__feest={play,step,records,starsOf,SONGS,get HERO(){return HERO},draw:t=>{ctx.clearRect(0,0,W,H); if(MODE) MODE.draw(t); drawSeason(t);},THEME,pickTheme,seasonLine,keys,key:onKey,debug:()=>MODE&&MODE.debug?MODE.debug():null,LEVELS,GAMES,ACTIVE_GAMES,FIXED_GAME,get state(){return state},get frames(){return frames},get collected(){return collected},get lives(){return lives},get deadT(){return deadT},get tot(){return tot},get lvIdx(){return lvIdx},get LV(){return LV},mode:()=>MODE,win,items};
