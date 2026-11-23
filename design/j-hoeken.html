@@ -1,0 +1,93 @@
+<!DOCTYPE html><html lang="nl"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>J-hoeken clowntje</title>
+<style>body{margin:0;padding:16px;background:#fff;font-family:system-ui,sans-serif;color:#1a1414}canvas{width:100%;max-width:1000px;height:auto;border-radius:12px;display:block}</style></head><body>
+<canvas id="cv" width="1500" height="760"></canvas>
+<script>
+(function(){
+const INK='#1a1414', SKIN='#FFF4EA';
+let ctx;
+const ink=(w=1.1)=>{ ctx.strokeStyle=INK; ctx.lineWidth=w; ctx.lineJoin='round'; ctx.lineCap='round'; };
+const circ=(x,y,r,fill,stroke=true)=>{ ctx.beginPath(); ctx.arc(x,y,r,0,7); ctx.fillStyle=fill; ctx.fill(); if(stroke){ ink(); ctx.stroke(); } };
+const ell=(x,y,rx,ry,rot,fill,stroke=true)=>{ ctx.beginPath(); ctx.ellipse(x,y,rx,ry,rot,0,7); ctx.fillStyle=fill; ctx.fill(); if(stroke){ ink(); ctx.stroke(); } };
+const seg=(ax,ay,bx,by,col,w)=>{ ink(w+1.6); ctx.beginPath(); ctx.moveTo(ax,ay); ctx.lineTo(bx,by); ctx.stroke(); ctx.strokeStyle=col; ctx.lineWidth=w; ctx.beginPath(); ctx.moveTo(ax,ay); ctx.lineTo(bx,by); ctx.stroke(); };
+
+/* ---------- face parts ---------- */
+function logoEye(x,y,s,rot,lk){ ctx.save(); ctx.translate(x,y); ctx.scale(s,s); ctx.save(); ctx.rotate(rot); ell(0,0,4.2,6,0,'#fff'); ctx.restore();
+  circ(-rot*6+lk.x*1.6,2.4+lk.y*1.4,1.5,INK,false); circ(-rot*6+lk.x*1.6-0.5,1.9+lk.y*1.4,0.5,'#fff',false);
+  const sd=Math.sign(rot)||1; ink(0.8); for(let k=0;k<3;k++){ const a=(sd>0?0.15:Math.PI-0.15)+sd*k*0.38, bx=sd*3.8, by=3; ctx.beginPath(); ctx.moveTo(bx,by+k*0.9); ctx.lineTo(bx+Math.cos(a)*2.1,by+k*0.9+Math.sin(a)*2.1); ctx.stroke(); }
+  ctx.restore(); }
+function brow(x,y,s,rot){ ctx.save(); ctx.translate(x,y); ctx.scale(s,s); ctx.rotate(rot); ctx.fillStyle=INK; ctx.beginPath(); ctx.moveTo(-3.4,0.8); ctx.quadraticCurveTo(0,-3,3.4,0.8); ctx.quadraticCurveTo(0,-1,-3.4,0.8); ctx.fill(); ctx.restore(); }
+function closedEye(x,y,r,up){ ink(1.3); ctx.beginPath(); if(up) ctx.arc(x,y+r*0.6,r,Math.PI*1.15,Math.PI*1.85); else ctx.arc(x,y-r*0.6,r,Math.PI*0.15,Math.PI*0.85); ctx.stroke(); }
+function jSmile(x,y,s,rot=0){ ctx.save(); ctx.translate(x,y); ctx.rotate(rot); ctx.scale(s,s); const p=()=>{ ctx.beginPath(); ctx.moveTo(2.4,-3); ctx.lineTo(2.4,0.4); ctx.quadraticCurveTo(2.4,3.4,-0.6,3.2); ctx.quadraticCurveTo(-3,3,-3.2,0.8); };
+  ctx.lineCap='round'; ctx.strokeStyle='#7a0000'; ctx.lineWidth=3; p(); ctx.stroke(); ctx.strokeStyle='#D20000'; ctx.lineWidth=1.6; p(); ctx.stroke(); ctx.restore(); }
+function nose(x,y,r){ const g=ctx.createRadialGradient(x-r*0.4,y-r*0.4,0.3,x,y,r); g.addColorStop(0,'#FF6B6B'); g.addColorStop(0.6,'#D20000'); g.addColorStop(1,'#9E0000'); circ(x,y,r,g); circ(x-r*0.38,y-r*0.38,r*0.28,'rgba(255,255,255,.85)',false); }
+const cheeks=(x,y,r,a=.7)=>{ circ(x-7,y,r,`rgba(247,141,167,${a})`,false); circ(x+7,y,r,`rgba(247,141,167,${a})`,false); };
+
+// every face is drawn around (x, y) = head centre; face = looking direction
+const FACES={
+  logo:{name:'Logo-ogen + J',draw(x,y,f,lk){ cheeks(x,y+4.5,1.8); logoEye(x-2,y-4.6,0.6,-0.18,lk); logoEye(x+2.2,y-4.6,0.6,0.18,lk); brow(x-3,y-9.6,0.6,-0.35); brow(x+3.2,y-9.6,0.6,0.35); const J=window.CLOWN_J||{deg:40,dx:0.6,dy:0}; jSmile(x+f*J.dx,y+6.9+J.dy,0.72,f*J.deg*Math.PI/180); nose(x+0.2,y+2.1,2.9); }}, // J under the nose: tilt (deg) and offset like the logo
+  lach:{name:'Lachebek',draw(x,y,f,lk){ cheeks(x,y+3.5,2.4,.8); closedEye(x-3.3,y-3.6,2.3,true); closedEye(x+3.3,y-3.6,2.3,true); brow(x-3.4,y-8.8,0.5,-0.25); brow(x+3.4,y-8.8,0.5,0.25);
+    ctx.beginPath(); ctx.moveTo(x-5.4,y+4.6); ctx.quadraticCurveTo(x,y+5.6,x+5.4,y+4.6); ctx.quadraticCurveTo(x+4.6,y+11.8,x,y+11.6); ctx.quadraticCurveTo(x-4.6,y+11.8,x-5.4,y+4.6); ctx.closePath(); ctx.fillStyle='#7a0000'; ctx.fill(); ink(); ctx.stroke();
+    ctx.save(); ctx.clip(); ell(x+0.4,y+11,3.4,2.4,0,'#F78DA7',false); ctx.restore(); nose(x+0.2,y+2.1,2.9); }},
+  schmink:{name:'Geschminkt',draw(x,y,f,lk){ for(const s of [-1,1]){ ctx.beginPath(); ctx.moveTo(x+s*3.4,y-11.5); ctx.lineTo(x+s*5.6,y-4.4); ctx.lineTo(x+s*3.4,y+0.8); ctx.lineTo(x+s*1.2,y-4.4); ctx.closePath(); ctx.fillStyle='#3a7bd5'; ctx.fill(); ink(0.7); ctx.stroke();
+      ell(x+s*3.4,y-4.4,1.7,2.2,0,'#fff'); circ(x+s*3.4+lk.x*0.6,y-4+lk.y*0.5,0.9,INK,false); }
+    ctx.beginPath(); ctx.moveTo(x-7.5,y+4.2); ctx.quadraticCurveTo(x,y+8,x+7.5,y+4.2); ctx.quadraticCurveTo(x+5,y+11.5,x,y+11.3); ctx.quadraticCurveTo(x-5,y+11.5,x-7.5,y+4.2); ctx.fillStyle='#D20000'; ctx.fill(); ink(); ctx.stroke();
+    ink(0.9); ctx.beginPath(); ctx.moveTo(x-5.6,y+6.4); ctx.quadraticCurveTo(x,y+9.6,x+5.6,y+6.4); ctx.stroke(); nose(x+0.2,y+1.8,2.7); }},
+  knipoog:{name:'Knipoog',draw(x,y,f,lk){ cheeks(x,y+4.5,1.9); const o=f>0?1:-1; logoEye(x+o*2.2,y-4.6,0.6,o*0.18,lk); closedEye(x-o*3,y-3.4,2.3,false);
+    brow(x+o*3.2,y-10.4,0.6,o*0.35); brow(x-o*3,y-8.4,0.6,-o*0.1);
+    ctx.save(); ctx.translate(x+o*1.6,y+8.6); ctx.rotate(o*0.25); ell(0,0,1.7,2.4,0,'#F78DA7'); ctx.restore(); jSmile(x,y+6.9,0.7); nose(x+0.2,y+2.1,2.9); }},
+  lief:{name:'Lief',draw(x,y,f,lk){ cheeks(x,y+3.8,2.6,.75); for(const s of [-1,1]){ const ex=x+s*3.4+lk.x*0.6, ey=y-3.6+lk.y*0.4; circ(ex,ey,2.5,INK,false); circ(ex-0.8,ey-0.9,0.9,'#fff',false); circ(ex+0.7,ey+0.8,0.45,'#fff',false);
+      ink(0.8); ctx.beginPath(); ctx.moveTo(ex+s*2,ey-1.6); ctx.lineTo(ex+s*3.3,ey-2.8); ctx.moveTo(ex+s*2.4,ey-0.6); ctx.lineTo(ex+s*3.8,ey-1.2); ctx.stroke(); }
+    ink(1.2); ctx.strokeStyle='#D20000'; ctx.beginPath(); ctx.arc(x+0.2,y+5.8,2.6,0.2*Math.PI,0.8*Math.PI); ctx.stroke(); nose(x+0.2,y+1.9,2.4); }},
+  grijns:{name:'Grijns',draw(x,y,f,lk){ logoEye(x-2,y-4.9,0.56,-0.18,lk); logoEye(x+2.2,y-4.9,0.56,0.18,lk); brow(x-3,y-10.6,0.6,-0.5); brow(x+3.2,y-10.6,0.6,0.5);
+    ctx.beginPath(); ctx.moveTo(x-6.6,y+5); ctx.quadraticCurveTo(x,y+6.4,x+6.6,y+5); ctx.quadraticCurveTo(x,y+12.4,x-6.6,y+5); ctx.closePath(); ctx.fillStyle='#fff'; ctx.fill(); ctx.strokeStyle='#D20000'; ctx.lineWidth=1.6; ctx.stroke(); ink(0.9); ctx.stroke();
+    ink(0.6); ctx.beginPath(); ctx.moveTo(x-5.6,y+6.8); ctx.quadraticCurveTo(x,y+8,x+5.6,y+6.8); for(const k of [-3,-1,1,3]){ ctx.moveTo(x+k*1.3,y+5.6); ctx.lineTo(x+k*1.3,y+9.2-Math.abs(k)*0.35); } ctx.stroke(); nose(x+0.2,y+2.1,2.9); }},
+};
+
+/* ---------- body ---------- */
+const STRIDE=9, LIFT=3, THIGH=7, SHIN=6.8, ANKLE=2.2, HIP=-13.4, RAISE=-1.8;
+const smooth=t=>t*t*(3-2*t);
+function footAt(q){ q=((q%1)+1)%1; // q<0.6 stance (foot planted, slides back), else swing
+  if(q<0.6){ const t=q/0.6; return {x:STRIDE/2-STRIDE*t, y:0, roll:t>0.72?(t-0.72)*1.9:(t<0.12?-(0.12-t)*2.2:0)}; }
+  const t=(q-0.6)/0.4; return {x:-STRIDE/2+STRIDE*smooth(t), y:-LIFT*Math.sin(Math.PI*t)*(1-0.25*t), roll:0.5*Math.sin(Math.PI*t)-0.25*t}; }
+function leg(hx,hy,q,face,walking,back){ const f=walking?footAt(q):{x:0,y:0,roll:0};
+  const ax=hx+face*f.x, ay=-ANKLE+f.y; let dx=ax-hx, dy=ay-hy, d=Math.hypot(dx,dy); const L=THIGH+SHIN-0.05; if(d>L){ dx*=L/d; dy*=L/d; d=L; }
+  const base=Math.atan2(dy,dx), bend=Math.acos(Math.min(1,(THIGH*THIGH+d*d-SHIN*SHIN)/(2*THIGH*d)));
+  const kA=base-face*bend; const kx=hx+Math.cos(kA)*THIGH, ky=hy+Math.sin(kA)*THIGH; const fx=hx+dx, fy=hy+dy;
+  const col=back?'#2a5ca8':'#3a7bd5', shoe=back?'#a30000':'#D20000';
+  seg(hx,hy,kx,ky,col,2.6); seg(kx,ky,fx,fy,col,2.4); circ(kx,ky,1.25,col,false);
+  ctx.save(); ctx.translate(fx,fy); ctx.rotate(-face*f.roll); ell(face*2.5,ANKLE-2.3,4.8,2.3,0,shoe); ell(face*3.6,ANKLE-3.2,1.4,0.7,face*0.3,'rgba(255,255,255,.55)',false); ctx.restore(); }
+function arm(sx,sy,ang,face,back){ const hx=sx+Math.sin(ang)*6.6*face, hy=sy+Math.cos(ang)*6.6; seg(sx,sy,hx,hy,back?'#a30000':'#D20000',2.4); circ(hx,hy,2.3,back?'#e9e4e0':'#fff'); }
+function hat(x,y,face){ ctx.save(); ctx.translate(x,y); ctx.rotate(face*0.3); ctx.beginPath(); ctx.moveTo(-5.5,2); ctx.lineTo(5.5,2); ctx.lineTo(0,-11); ctx.closePath(); ctx.fillStyle='#FCB900'; ctx.fill(); ink(); ctx.stroke();
+  ctx.strokeStyle='#D20000'; ctx.lineWidth=1.4; ctx.beginPath(); ctx.moveTo(-3.6,-2.5); ctx.lineTo(3,-1); ctx.moveTo(-1.6,-7); ctx.lineTo(2,-6); ctx.stroke(); circ(0,-11.5,2,'#D20000'); ctx.restore(); }
+
+window.CLOWN_FACES=Object.fromEntries(Object.entries(FACES).map(([k,v])=>[k,v.name]));
+window.drawClown=function(c,o){ ctx=c; const face=o.face||1, p=o.p||0, walking=!!o.walking, lk=o.lk||{x:0.6,y:0.5};
+  const bob=walking?0.75*Math.cos(4*Math.PI*p)+0.3:0.35*Math.sin((o.t||0)*0.05);
+  const lean=walking?face*0.05:0;
+  ctx.save();
+  // legs first (hips are hidden under the suit); back leg is the one on the far side
+  leg(face*1.6,HIP+bob,p+0.5,face,walking,true);
+  leg(-face*1.6,HIP+bob,p,face,walking,false);
+  ctx.translate(0,bob+RAISE); ctx.rotate(lean);
+  // each arm swings opposite to the leg on its own side (the near leg is furthest forward at p=0)
+  const sw=walking?Math.cos(2*Math.PI*p)*0.65:0.06*Math.sin((o.t||0)*0.05);
+  arm(face*5.6,-21.2,sw,face,true);
+  ctx.beginPath(); ctx.moveTo(-6.5,-24); ctx.quadraticCurveTo(-9.5,-12,-6,-10); ctx.lineTo(6,-10); ctx.quadraticCurveTo(9.5,-12,6.5,-24); ctx.closePath(); ctx.fillStyle='#D20000'; ctx.fill(); ink(); ctx.stroke();
+  for(const [dx,dy] of [[-3,-20],[2.5,-17],[-1,-13.5],[4,-22],[-4.5,-15]]) circ(dx,dy,1.1,'#fff',false);
+  circ(face*0.4,-19,1.2,'#FCB900'); circ(face*0.4,-14.5,1.2,'#FCB900');
+  arm(-face*5.6,-21.2,-sw,face,false);
+  for(let k=0;k<7;k++){ const a=Math.PI*(0.08+k*0.84/6); circ(-Math.cos(a)*7,-24+Math.sin(a)*1.2,2.2,k%2?'#8ED1FC':'#fff'); }
+  for(const s of [-1,1]) for(let k=0;k<3;k++) circ(s*(10.5+k*0.6)+face*0.5,-40+k*3.4,2.8,'#FF8A1F');
+  const hx=face*0.6, hy=-35.5; circ(hx,hy,11,SKIN);
+  FACES[o.style||'logo'].draw(face*1.6,hy,face,lk);
+  hat(face*1.5,-46.5,face);
+  ctx.restore(); };
+})();
+const cv=document.getElementById('cv'), ctx=cv.getContext('2d'); ctx.fillStyle='#FFF6F3'; ctx.fillRect(0,0,cv.width,cv.height);
+const DEG=[0,15,30,45,60], ROWS=[{dx:0.6,dy:0,name:'midden'},{dx:3.4,dy:0.4,name:'uit het midden'}];
+ctx.font='600 26px system-ui,sans-serif'; ctx.textAlign='center'; ctx.fillStyle='#1a1414';
+DEG.forEach((d,i)=>ctx.fillText(d+'°',190+i*270,40));
+ROWS.forEach((r,j)=>{ ctx.save(); ctx.textAlign='left'; ctx.font='400 20px system-ui,sans-serif'; ctx.fillStyle='#5a4444'; ctx.translate(26,230+j*360); ctx.rotate(-Math.PI/2); ctx.fillText(r.name,-60,0); ctx.restore();
+  DEG.forEach((d,i)=>{ window.CLOWN_J={deg:d,dx:r.dx,dy:r.dy}; const cx=190+i*270, cy=220+j*360;
+    ctx.save(); ctx.beginPath(); ctx.rect(cx-130,cy-160,260,330); ctx.clip(); ctx.translate(cx,cy); ctx.scale(9,9); ctx.translate(-1.6,35.5); drawClown(ctx,{face:1,style:'logo',lk:{x:0.6,y:0.5}}); ctx.restore(); }); });
+</script></body></html>

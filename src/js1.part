@@ -1,0 +1,396 @@
+<script>
+(()=>{
+'use strict';
+const T=32, COLS=30, ROWS=17, W=960, H=544;
+const CATS=[
+ {id:'ballonnen',name:'Ballonnen'},
+ {id:'folieballonnen',name:'Folieballonnen'},
+ {id:'ballondecoratie',name:'Ballondecoraties'},
+ {id:'feestversiering',name:'Feestversiering'},
+ {id:'cadeaupapier',name:'Cadeaupapier'},
+ {id:'home-decoratie',name:'Home decoratie'},
+ {id:'kleding',name:'Kleding & accessoires'},
+ {id:'schmink',name:'Schmink e.d.'},
+ {id:'speelgoed',name:'Speelgoed'},
+ {id:'abraham-sarah',name:'Abraham & Sarah'},
+];
+const CONF=['#D20000','#FFFFFF','#FCB900','#8ED1FC','#7BDCB5','#9B51E0','#F78DA7'], CARN=['#D20000','#FCB900','#2E9E44'], PAAS=['#FFD54F','#A5D6A7','#CE93D8','#F48FB1','#81D4FA']; // CARN: rood-geel-groen, carnaval in Brabant; PAAS: pastel
+/* ---------- seasonal theme (visual only: never touches hitboxes, physics or level data) ----------
+   'sint' 10 Nov – 5 Dec, 'kerst' 6 Dec – 6 Jan, 'carnaval' the two weeks before Aswoensdag, 'pasen' the two weeks
+   before Easter up to Easter Monday (both move with Easter), every year; ?thema=sint|kerst|carnaval|pasen|geen
+   overrides the date.
+   The block between the THEME-RULES markers is also copied into the hub page by build_site.py: keep it self-contained. */
+/*THEME-RULES*/
+const dayOf=d=>new Date(d.getFullYear(),d.getMonth(),d.getDate()), daysBetween=(a,b)=>Math.round((dayOf(b)-dayOf(a))/864e5);
+function pasen(y,shift=0){ // Easter Sunday (anonymous Gregorian algorithm), plus shift days
+  const a=y%19,b=Math.floor(y/100),c=y%100,d=Math.floor(b/4),e=b%4,f=Math.floor((b+8)/25),g=Math.floor((b-f+1)/3),h=(19*a+b-d-g+15)%30,i=Math.floor(c/4),k=c%4,l=(32+2*e+2*i-h-k)%7,m=Math.floor((a+11*h+22*l)/451),n=h+l-7*m+114;
+  return new Date(y,Math.floor(n/31)-1,(n%31)+1+shift); }
+const aswoensdag=y=>pasen(y,-46);
+function pickTheme(d,q){ const m=/[?&]thema=(sint|kerst|carnaval|pasen|geen)(?![\w])/.exec(q||''); if(m) return m[1]==='geen'?null:m[1];
+  const toAsh=daysBetween(d,aswoensdag(d.getFullYear())); if(toAsh>=1&&toAsh<=14) return 'carnaval';
+  const toEaster=daysBetween(d,pasen(d.getFullYear())); if(toEaster>=-1&&toEaster<=13) return 'pasen';
+  const md=(d.getMonth()+1)*100+d.getDate(); if(md>=1110&&md<=1205) return 'sint'; if(md>=1206||md<=106) return 'kerst'; return null; }
+function seasonLine(d,t){ // the line on the title screen (and the hub banner), or '' outside the themes
+  if(t==='kerst') return 'Fijne feestdagen van J-Martens! 🎄';
+  const nights=(n,what,party)=>n<0||n>30?party:n===0?`Vanavond is het ${what}!`:n===1?`Nog 1 nachtje slapen tot ${what}!`:`Nog ${n} nachtjes slapen tot ${what}!`;
+  if(t==='carnaval'){ const n=daysBetween(d,aswoensdag(d.getFullYear()))-4; return n<=0&&n>=-3?'Alaaf! Het is carnaval! 🎭':nights(n,'carnaval','Alaaf! Het is bijna carnaval! 🎭')+(n>0&&n<=30?' 🎭':''); }
+  if(t==='pasen'){ const n=daysBetween(d,pasen(d.getFullYear())); return n<=0&&n>=-1?'Vrolijk Pasen! 🐣':nights(n,'Pasen','Vrolijk Pasen!')+' 🐣'; }
+  if(t!=='sint') return '';
+  const n=daysBetween(d,new Date(d.getFullYear(),11,5)); return nights(n,'pakjesavond','Sinterklaas is in het land!')+' 🎁'; }
+/*END-THEME-RULES*/
+const TODAY=new Date(), THEME=pickTheme(TODAY,(typeof location!=='undefined'&&location.search)||'');
+const seasonNow=(d=TODAY)=>seasonLine(d,THEME);
+const IMG=CATS.map(c=>{const im=new Image(); im.src='img/'+c.id+'.jpg'; return im;});
+/* ---------- dom ---------- */
+const $=id=>document.getElementById(id);
+const cv=$('c'); let ctx=cv.getContext('2d'); // let: withCtx() draws the hero previews on their own small canvases
+function withCtx(c2,fn){ const keep=ctx; ctx=c2; try{ fn(); } finally{ ctx=keep; } }
+const slotsEl=$('slots'), livesEl=$('livesBox'), coinsEl=$('coins'), timeEl=$('time'), lvlEl=$('lvl');
+const pickEl=$('pickup'), pickImg=$('pickImg'), pickName=$('pickName'), toastEl=$('toast');
+CATS.forEach((c,i)=>{const d=document.createElement('div'); d.className='slot'; d.title=c.name; const im=document.createElement('img'); im.src='img/'+c.id+'.jpg'; im.alt=c.name; d.appendChild(im); slotsEl.appendChild(d);
+  const t=document.createElement('img'); t.src='img/'+c.id+'.jpg'; t.alt=c.name; t.title=c.name; $('titleThumbs').appendChild(t);});
+
+/* ---------- audio ---------- */
+let AC=null, muted=false;
+function initAudio(){ if(!AC){ try{ AC=new (window.AudioContext||window.webkitAudioContext)(); }catch(e){} } if(AC&&AC.state==='suspended') AC.resume(); }
+function tone(f0,f1,dur,type='square',vol=0.07,delay=0,at=null){ if(!AC||muted) return; const t0=at!=null?at:AC.currentTime+delay; const o=AC.createOscillator(), g=AC.createGain(); o.type=type; o.frequency.setValueAtTime(f0,t0); o.frequency.exponentialRampToValueAtTime(Math.max(20,f1),t0+dur); g.gain.setValueAtTime(vol,t0); g.gain.exponentialRampToValueAtTime(0.0008,t0+dur); o.connect(g).connect(AC.destination); o.start(t0); o.stop(t0+dur+0.02); }
+function noise(dur,vol=0.2,at=null,hp=0){ if(!AC||muted) return; const t0=at!=null?at:AC.currentTime; const n=Math.max(1,Math.floor(AC.sampleRate*dur)), b=AC.createBuffer(1,n,AC.sampleRate), d=b.getChannelData(0); for(let i=0;i<n;i++) d[i]=(Math.random()*2-1)*(1-i/n); const s=AC.createBufferSource(); s.buffer=b; const g=AC.createGain(); g.gain.value=vol; let node=s; if(hp){ const f=AC.createBiquadFilter(); f.type='highpass'; f.frequency.value=hp; s.connect(f); node=f; } node.connect(g).connect(AC.destination); s.start(t0); }
+const SFX={
+  jump:()=>tone(300,620,0.12,'square',0.05),
+  flap:()=>tone(420,760,0.09,'triangle',0.06),
+  coin:()=>{tone(900,1400,0.08,'sine',0.06); tone(1400,1800,0.1,'sine',0.05,0.07);},
+  item:()=>{[523,659,784,1047].forEach((f,i)=>tone(f,f,0.14,'triangle',0.09,i*0.08));},
+  spring:()=>tone(200,900,0.25,'sawtooth',0.05),
+  pop:()=>{noise(0.18,0.35); tone(400,60,0.18,'square',0.08);},
+  flag:()=>{tone(660,880,0.1,'triangle',0.06); tone(880,1100,0.12,'triangle',0.06,0.1);},
+  move:()=>tone(500,500,0.03,'square',0.025),
+  rotate:()=>tone(700,900,0.05,'square',0.03),
+  lock:()=>tone(220,160,0.08,'triangle',0.07),
+  line:()=>{[660,880,1100].forEach((f,i)=>tone(f,f*1.2,0.1,'square',0.05,i*0.05));},
+  win:()=>{[523,659,784,1047,784,1047,1319].forEach((f,i)=>tone(f,f,0.18,'triangle',0.1,i*0.12));},
+  over:()=>{[400,350,300,200].forEach((f,i)=>tone(f,f*0.9,0.25,'square',0.06,i*0.2));},
+};
+/* --- muziek: twee deuntjes van 8 maten in achtste noten (64 stappen) --- */
+const SONGS={
+  feest:{ // eigen feestpolka
+    mel:[76,79,76,72,74,76,74,-1, 76,79,81,79,76,74,72,-1, 77,81,77,74,76,77,76,-1, 74,77,79,77,76,74,71,-1,
+         72,76,79,84,83,79,76,-1, 81,84,81,76,79,76,72,-1, 77,81,84,81,79,76,74,76, 74,77,74,71,72,-1,-1,-1],
+    bass:[36,43,36,43, 36,43,36,43, 41,48,41,48, 43,50,43,50, 36,43,36,43, 45,52,45,52, 41,48,41,48, 43,50,36,43],
+    harm:[64,-1,67,-1,64,-1,67,-1, 64,-1,67,-1,64,-1,67,-1, 65,-1,69,-1,65,-1,69,-1, 67,-1,71,-1,67,-1,71,-1,
+          64,-1,67,-1,64,-1,67,-1, 64,-1,69,-1,64,-1,69,-1, 65,-1,69,-1,65,-1,69,-1, 67,-1,71,-1,64,-1,67,-1]},
+  tetris:{ // Korobeiniki (traditioneel Russisch volksliedje)
+    mel:[76,-1,71,72,74,-1,72,71, 69,-1,69,72,76,-1,74,72, 71,-1,-1,72,74,-1,76,-1, 72,-1,69,-1,69,-1,0,0,
+         0,74,-1,77,81,-1,79,77, 76,-1,-1,72,76,-1,74,72, 71,-1,71,72,74,-1,76,-1, 72,-1,69,-1,69,-1,0,0],
+    bass:[45,52,45,52, 40,47,40,47, 45,52,45,52, 45,52,45,52, 38,45,38,45, 45,52,45,52, 40,47,40,47, 45,52,45,52],
+    harm:[0,64,0,64,0,64,0,64, 0,68,0,68,0,68,0,68, 0,64,0,64,0,64,0,64, 0,64,0,64,0,64,0,64,
+          0,65,0,65,0,65,0,65, 0,64,0,64,0,64,0,64, 0,68,0,68,0,68,0,68, 0,64,0,64,0,64,0,64]},
+};
+/* seasonal tunes, used for every game while a theme is on. bass and harm are built from one chord per bar:
+   [root (MIDI, low), third, fifth] -> bass root/fifth on the beats, the chord on the off-beats */
+const bassOf=ch=>ch.flatMap(([r])=>[r,r+7,r,r+7]), harmOf=ch=>ch.flatMap(([,a,b])=>[0,a,0,b,0,a,0,b]);
+const C_=[36,64,67], F_=[41,65,69], G_=[43,67,71], D_=[38,66,69], Dm=[38,65,69];
+const Gm=[43,67,71], Em=[40,67,71], PASEN=[Gm,D_,Em,C_,Gm,D_,C_,Gm];
+const KERST=[C_,C_,C_,C_,F_,C_,D_,G_], SINT=[C_,Dm,G_,C_,F_,C_,G_,C_], CARNAVAL=[C_,G_,C_,G_,C_,F_,C_,C_];
+SONGS.kerst={bells:true, // Jingle Bells, the chorus (James Lord Pierpont, 1857; public domain)
+  mel:[76,-1,76,-1,76,-1,-1,-1, 76,-1,76,-1,76,-1,-1,-1, 76,-1,79,-1,72,-1,74,-1, 76,-1,-1,-1,-1,-1,-1,-1,
+       77,-1,77,-1,77,-1,77,-1, 77,-1,76,-1,76,-1,76,76, 76,-1,74,-1,74,-1,76,-1, 74,-1,-1,-1,79,-1,-1,-1],
+  bass:bassOf(KERST), harm:harmOf(KERST)};
+SONGS.sint={clop:true, // an own tune with a horse trotting over the roof (woodblock)
+  mel:[72,76,79,76,72,-1,-1,-1, 74,77,81,77,74,-1,-1,-1, 79,79,81,79,77,76,74,72, 76,-1,79,-1,76,-1,-1,-1,
+       77,81,84,81,79,-1,76,-1, 77,77,76,76,74,74,72,-1, 74,76,77,79,81,83,84,-1, 79,-1,76,-1,72,-1,-1,-1],
+  bass:bassOf(SINT), harm:harmOf(SINT)};
+SONGS.carnaval={march:true, // an own hoempa march for carnaval
+  mel:[79,79,81,79,76,-1,72,-1, 77,77,79,77,74,-1,71,-1, 76,79,84,79,81,79,77,76, 74,-1,79,-1,74,-1,-1,-1,
+       79,79,81,79,76,-1,72,-1, 77,81,84,81,79,77,76,74, 72,76,79,84,83,-1,86,-1, 84,-1,79,-1,84,-1,-1,-1],
+  bass:bassOf(CARNAVAL), harm:harmOf(CARNAVAL)};
+SONGS.pasen={chirp:true, // an own spring tune in G with birds
+  mel:[71,-1,74,-1,79,-1,74,-1, 78,-1,76,-1,74,-1,-1,-1, 76,74,76,79,71,-1,-1,-1, 72,-1,76,-1,72,-1,69,-1,
+       71,74,79,74,71,74,79,-1, 78,76,74,72,71,-1,69,-1, 72,-1,76,-1,74,-1,78,-1, 79,-1,74,-1,67,-1,-1,-1],
+  bass:bassOf(PASEN), harm:harmOf(PASEN)};
+const mf=m=>440*Math.pow(2,(m-69)/12);
+const mus={on:false,next:0,step:0,timer:null,bpm:150,tr:0,song:SONGS.feest};
+function musicStart(song,bpm,tr){ if(!AC) return; mus.song=SONGS[THEME&&SONGS[THEME]?THEME:song]||SONGS.feest; /* a theme has its own tune for every game */ mus.bpm=bpm; mus.tr=tr||0; mus.step=0; mus.next=AC.currentTime+0.08; mus.on=true; if(!mus.timer) mus.timer=setInterval(musicTick,30); }
+function musicStop(){ mus.on=false; if(mus.timer){ clearInterval(mus.timer); mus.timer=null; } }
+function musicTick(){ if(!AC||!mus.on) return; const spb=60/mus.bpm/2; while(mus.next<AC.currentTime+0.15){ musicStep(mus.step,mus.next,spb); mus.step=(mus.step+1)%64; mus.next+=spb; } }
+function musicStep(i,t0,spb){
+  const S=mus.song, m=S.mel[i]; if(m>0){ let len=1; while(i+len<64&&S.mel[i+len]===-1) len++; tone(mf(m+mus.tr),mf(m+mus.tr),spb*len*0.95,'square',0.04,0,t0); }
+  const h=S.harm[i]; if(h>0) tone(mf(h+mus.tr),mf(h+mus.tr),spb*0.9,'triangle',0.03,0,t0);
+  if(i%2===0){ const b=S.bass[i/2]; tone(mf(b+mus.tr),mf(b+mus.tr)*0.995,spb*1.6,'triangle',0.09,0,t0); }
+  if(i%8===0||i%8===4) tone(150,45,0.12,'sine',0.14,0,t0);
+  if(i%8===2||i%8===6) noise(0.09,0.10,t0,1200);
+  noise(0.025,0.035,t0,6000);
+  if(S.bells) noise(0.07,i%2?0.04:0.07,t0,7500); // sleigh bells
+  if(S.clop&&(i%4===0||i%4===1)) tone(i%4?950:1250,i%4?800:1000,0.035,'triangle',0.07,0,t0); // clip-clop
+  if(S.march&&i%4===2) noise(0.1,0.16,t0,1500); // snare on the off-beat
+  if(S.chirp&&(i%16===13||i%16===14)) tone(i%16===13?2600:3100,i%16===13?3400:2500,0.06,'sine',0.025,0,t0); // a bird
+}
+
+/* ---------- shared state & helpers ---------- */
+let state='title', lvIdx=0, LV=null, MODE=null, frames=0, lives=3, coinsGot=0, collected=0, totalScore=0;
+let particles=[], popText=null, shakeT=0, deadT=0, invT=0;
+let tot={items:10,coins:0};
+const keys={l:false,r:false,u:false,d:false,j:false};
+const fmt=f=>{const s=Math.floor(f/60); return Math.floor(s/60)+':'+String(s%60).padStart(2,'0');};
+const overlap=(ax,ay,aw,ah,bx,by,bw,bh)=>ax<bx+bw&&ax+aw>bx&&ay<by+bh&&ay+ah>by;
+const rr=(x,y,w,h,r)=>{ctx.beginPath();ctx.roundRect(x,y,w,h,r);};
+function updHud(){ livesEl.innerHTML=[0,1,2].map(i=>`<span class="life${i<lives?'':' lost'}"></span>`).join(''); coinsEl.textContent=coinsGot; timeEl.textContent=fmt(frames); lvlEl.textContent=LV?LV.li+1:1; }
+let toastT=null;
+function toast(msg,ms=1800){ toastEl.textContent=msg; toastEl.classList.add('show'); clearTimeout(toastT); toastT=setTimeout(()=>toastEl.classList.remove('show'),ms); }
+function burst(x,y,n,colors,pow=1){ for(let i=0;i<n;i++){ const a=Math.random()*Math.PI*2, s=(1+Math.random()*4)*pow; particles.push({x,y,vx:Math.cos(a)*s,vy:Math.sin(a)*s-2*pow,life:50+Math.random()*40,c:colors[i%colors.length],sz:3+Math.random()*4,r:Math.random()*6,sp:(Math.random()-.5)*.3}); } }
+function stepFx(){ if(shakeT>0) shakeT--; for(let i=particles.length-1;i>=0;i--){ const p=particles[i]; p.x+=p.vx; p.y+=p.vy; p.vy+=0.15; p.vx*=0.98; p.r+=p.sp; if(--p.life<=0) particles.splice(i,1); } if(popText&&--popText.t<=0) popText=null; if(invT>0) invT--; }
+function drawFx(){ for(const p of particles){ ctx.save(); ctx.translate(p.x,p.y); ctx.rotate(p.r); ctx.globalAlpha=Math.min(1,p.life/25); ctx.fillStyle=p.c; ctx.fillRect(-p.sz/2,-p.sz/4,p.sz,p.sz/2); ctx.restore(); }
+  if(popText){ ctx.save(); ctx.translate(popText.x,popText.y-10-(40-popText.t)); ctx.rotate(-0.15); ctx.font='900 28px Grandstander, Impact, sans-serif'; ctx.textAlign='center'; ctx.lineWidth=5; ctx.strokeStyle='#fff'; ctx.strokeText('POP!',0,0); ctx.fillStyle='#D20000'; ctx.fillText('POP!',0,0); ctx.restore(); } }
+const items=CATS.map((c,i)=>({i,got:false}));
+function collectItem(i,px,py){ const it=items[i]; if(it.got) return; it.got=true; collected++; SFX.item(); burst(px,py,36,CONF,1.2); shakeT=6;
+  const cat=CATS[i]; pickImg.src='img/'+cat.id+'.jpg'; pickName.textContent=cat.name; pickEl.classList.remove('show'); void pickEl.offsetWidth; pickEl.classList.add('show');
+  const sl=slotsEl.children[i]; sl.classList.add('got'); sl.classList.remove('pop'); void sl.offsetWidth; sl.classList.add('pop');
+  if(collected>=tot.items) toast('Winkelwagen vol! Op naar de kassa 🛒'); }
+const nextItem=()=>items.find(it=>!it.got);
+function collectCoin(px,py){ coinsGot++; coinsEl.textContent=coinsGot; SFX.coin(); burst(px,py,8,['#FCB900','#fff'],0.7); }
+function die(px,py){ if(deadT||invT>0) return; deadT=1; SFX.pop(); shakeT=14; burst(px,py,40,['#D20000','#FF6B6B','#9E0000','#fff'],1.4); popText={x:px,y:py-16,t:40}; lives--; updHud(); }
+function afterDeath(){ // called by modes each frame while deadT>0; returns true when respawned
+  deadT++; if(deadT<=70) return false; deadT=0;
+  if(lives<=0){ state='over'; musicStop(); SFX.over(); $('overText').textContent=`Level ${LV.li+1} (${LV.name}): je had ${collected} van de ${tot.items} categorieën en ${coinsGot} ballonnetjes in je wagen. Tijd: ${fmt(frames)}.`; $('ovOver').hidden=false; return false; }
+  invT=90; MODE.respawn(); toast('Nieuwe ballon!'); return true;
+}
+const flicker=()=>invT>0&&Math.floor(invT/4)%2===1;
+/* ---------- the player's own records, kept in this browser only ----------
+   localStorage can be missing (test harness), blocked (private mode, cookie settings, third-party iframe) or full:
+   every access is in try/catch and without storage the game simply shows no records. Numbers and a date only. */
+const store={ get(k){ try{ const v=window.localStorage.getItem(k); return v?JSON.parse(v):null; }catch(e){ return null; } },
+  set(k,v){ try{ window.localStorage.setItem(k,JSON.stringify(v)); return true; }catch(e){ return false; } },
+  del(k){ try{ window.localStorage.removeItem(k); }catch(e){} } };
+const REC_KEY='feestrun:v1:records', HERO_KEY='feestrun:v1:held';
+// who the player is: het clowntje or het clownmeisje (?held=meisje, else the choice remembered in this browser)
+let HERO=(()=>{ const m=/[?&]held=(clown|meisje)(?![\w])/.exec((typeof location!=='undefined'&&location.search)||''); if(m) return m[1]; return store.get(HERO_KEY)==='meisje'?'meisje':'clown'; })();
+const heroName=w=>(w||HERO)==='meisje'?'het clownmeisje':'het clowntje';
+function setHero(w){ HERO=w==='meisje'?'meisje':'clown'; store.set(HERO_KEY,HERO); }
+function records(){ const r=store.get(REC_KEY); return r&&typeof r==='object'&&!Array.isArray(r)?r:{}; }
+const recKey=lv=>lv.game.id+':'+lv.li;
+const starsOf=(cards,lost)=>cards>=10?(lost===0?3:2):1; // ★ uitgespeeld, ★★ alle 10 kaartjes, ★★★ en geen ballon kwijt
+const starStr=n=>'★'.repeat(n)+'☆'.repeat(3-n), starHtml=n=>'★'.repeat(n)+(n<3?`<span class="off">${'★'.repeat(3-n)}</span>`:'');
+
+/* ---------- shared drawing ---------- */
+/* Sinterklaas things, drawn around (0,0) at about 20 px: 0 mitre, 1 present, 2 chocolate letter J, 3 pepernoten, 4 shoe with a carrot */
+/* Easter things for the shelves, about 20 px around (0,0): 0 a striped egg, 1 a dotted egg, 2 a chick */
+function drawPaasThing(k,c){
+  if(k<2){ ctx.fillStyle=c; ctx.beginPath(); ctx.ellipse(0,2,8,10.5,0,0,Math.PI*2); ctx.fill(); ctx.fillStyle='#fff';
+    if(k===0){ ctx.beginPath(); for(let x=-8;x<=8;x+=4) ctx.lineTo(x,(x/4)%2?-1:2); for(let x=8;x>=-8;x-=4) ctx.lineTo(x,(x/4)%2?2:5); ctx.closePath(); ctx.fill(); }
+    else for(const [x,y] of [[-3,-3],[3,0],[-2,5],[4,7],[0,-7]]){ ctx.beginPath(); ctx.arc(x,y,1.6,0,Math.PI*2); ctx.fill(); } return; }
+  ctx.fillStyle='#FFD54F'; ctx.beginPath(); ctx.ellipse(0,5,8,6.5,0,0,Math.PI*2); ctx.arc(1,-4,5,0,Math.PI*2); ctx.fill(); ctx.fillStyle='#FF8A1F'; ctx.beginPath(); ctx.moveTo(5.5,-4); ctx.lineTo(9,-3); ctx.lineTo(5.5,-2); ctx.fill(); ctx.fillStyle='#1A1414'; ctx.beginPath(); ctx.arc(2.5,-5,1,0,Math.PI*2); ctx.fill(); }
+/* carnival things for the shelves, about 20 px around (0,0): 0 a mask, 1 a party horn, 2 a party hat */
+function drawCarnavalThing(k,c){
+  if(k===0){ ctx.fillStyle=c; ctx.beginPath(); ctx.moveTo(-12,-6); ctx.quadraticCurveTo(0,-11,12,-6); ctx.quadraticCurveTo(13,5,4,4); ctx.quadraticCurveTo(0,-1,-4,4); ctx.quadraticCurveTo(-13,5,-12,-6); ctx.fill(); ctx.fillStyle='#fff'; ctx.beginPath(); ctx.ellipse(-5.5,-2.5,3,2,0,0,Math.PI*2); ctx.ellipse(5.5,-2.5,3,2,0,0,Math.PI*2); ctx.fill(); return; }
+  if(k===1){ ctx.fillStyle=c; ctx.beginPath(); ctx.moveTo(-12,6); ctx.lineTo(8,-4); ctx.lineTo(10,2); ctx.closePath(); ctx.fill(); ctx.fillStyle='#fff'; ctx.fillRect(-4,0,2,4); ctx.fillRect(2,-3,2,4); return; }
+  ctx.fillStyle=c; ctx.beginPath(); ctx.moveTo(-8,10); ctx.lineTo(8,10); ctx.lineTo(0,-12); ctx.closePath(); ctx.fill(); ctx.fillStyle='#fff'; ctx.fillRect(-5,2,10,2); ctx.fillRect(-2.5,-5,5,2); ctx.beginPath(); ctx.arc(0,-12,2.5,0,Math.PI*2); ctx.fill(); }
+function drawSintThing(k,c){
+  if(k===0){ ctx.beginPath(); ctx.moveTo(-8,10); ctx.lineTo(-9,-1); ctx.quadraticCurveTo(-6,-9,0,-13); ctx.quadraticCurveTo(6,-9,9,-1); ctx.lineTo(8,10); ctx.closePath(); ctx.fillStyle='#D20000'; ctx.fill(); ctx.strokeStyle='#7a0000'; ctx.lineWidth=1; ctx.stroke();
+    ctx.fillStyle='#FCB900'; ctx.fillRect(-8,6,16,3); ctx.fillRect(-1,-8,2,9); ctx.fillRect(-3.5,-5,7,2); return; }
+  if(k===1){ ctx.fillStyle=c; rr(-9,-6,18,16,2); ctx.fill(); ctx.fillStyle='#fff'; ctx.fillRect(-1.5,-6,3,16); ctx.fillRect(-9,0,18,3); ctx.strokeStyle='#fff'; ctx.lineWidth=1.8;
+    for(const s of [-1,1]){ ctx.beginPath(); ctx.ellipse(s*3.5,-8.5,3.5,2.2,s*0.5,0,Math.PI*2); ctx.stroke(); } return; }
+  if(k===2){ ctx.font='900 26px Grandstander, Impact, sans-serif'; ctx.textAlign='center'; ctx.lineWidth=3; ctx.strokeStyle='#3E1F0D'; ctx.strokeText('J',0,10); ctx.fillStyle='#7B4A26'; ctx.fillText('J',0,10); ctx.textAlign='left'; return; }
+  if(k===3){ for(const [x,y] of [[-5,4],[5,4],[0,-4],[-1,6]]){ ctx.fillStyle='#A0632F'; ctx.beginPath(); ctx.arc(x,y,4.4,0,Math.PI*2); ctx.fill(); ctx.fillStyle='rgba(255,220,170,.45)'; ctx.beginPath(); ctx.arc(x-1.3,y-1.3,1.3,0,Math.PI*2); ctx.fill(); } return; }
+  ctx.fillStyle='#1A1414'; ctx.beginPath(); ctx.moveTo(-11,9); ctx.lineTo(-11,1); ctx.quadraticCurveTo(-9,-3,-4,-2); ctx.lineTo(4,1); ctx.quadraticCurveTo(12,2,12,9); ctx.closePath(); ctx.fill();
+  ctx.fillStyle='#FF8A1F'; ctx.beginPath(); ctx.moveTo(-8,-1); ctx.lineTo(-2,-1); ctx.lineTo(-6,-15); ctx.closePath(); ctx.fill(); ctx.fillStyle='#2E7D32'; ctx.fillRect(-6.5,-4,2,4); }
+function drawBunting(t,px,night){ ctx.save(); ctx.translate(-px,0); const st=Math.floor(px/420)-1;
+  if(THEME==='sint'&&!night){ // a rope with Sinterklaas things hanging from it, each swinging a little
+    for(let s=st;s<st+5;s++){ const ox=s*420; ctx.strokeStyle='#8a6a3a'; ctx.lineWidth=2.5; ctx.beginPath(); ctx.moveTo(ox,40); ctx.quadraticCurveTo(ox+210,95,ox+420,40); ctx.stroke();
+      for(let i=0;i<7;i++){ const tt=(i+0.5)/7, x=ox+tt*420, y=(1-tt)*(1-tt)*40+2*(1-tt)*tt*95+tt*tt*40, k=(i+s*2+40)%5, len=8+(i%2)*7, a=Math.sin(t*0.04+i*1.3+s)*0.12;
+        ctx.save(); ctx.translate(x,y); ctx.rotate(a); ctx.strokeStyle='#8a6a3a'; ctx.lineWidth=1; ctx.beginPath(); ctx.moveTo(0,0); ctx.lineTo(0,len); ctx.stroke(); ctx.translate(0,len+13); drawSintThing(k,['#D20000','#9B51E0','#1E88E5','#28A745','#E8388A'][(i+s+50)%5]); ctx.restore(); } }
+    ctx.restore(); return; }
+  if(THEME==='kerst'&&!night){ // a green garland with baubles
+    for(let s=st;s<st+5;s++){ const ox=s*420; ctx.strokeStyle='#2E7D32'; ctx.lineWidth=5; ctx.beginPath(); ctx.moveTo(ox,40); ctx.quadraticCurveTo(ox+210,95,ox+420,40); ctx.stroke();
+      ctx.strokeStyle='#4CAF50'; ctx.lineWidth=2; ctx.setLineDash([3,4]); ctx.stroke(); ctx.setLineDash([]);
+      for(let i=0;i<10;i++){ const tt=(i+0.5)/10, x=ox+tt*420, y=(1-tt)*(1-tt)*40+2*(1-tt)*tt*95+tt*tt*40, col=['#D20000','#FCB900','#1E88E5','#D20000','#9B51E0'][i%5], sw=Math.sin(t*0.04+i+s)*1.5;
+        ctx.fillStyle='#b8a068'; ctx.fillRect(x-2.5+sw,y+3,5,4); const g=ctx.createRadialGradient(x+sw-3,y+11,1,x+sw,y+14,9); g.addColorStop(0,'#fff'); g.addColorStop(0.3,col); g.addColorStop(1,col);
+        ctx.fillStyle=g; ctx.beginPath(); ctx.arc(x+sw,y+14,8,0,Math.PI*2); ctx.fill(); } }
+    ctx.restore(); return; }
+  for(let s=st;s<st+5;s++){ const ox=s*420; ctx.strokeStyle=night?'#120406':'#5a4444'; ctx.lineWidth=2; ctx.beginPath(); ctx.moveTo(ox,40); ctx.quadraticCurveTo(ox+210,95,ox+420,40); ctx.stroke();
+    for(let i=0;i<10;i++){ const tt=(i+0.5)/10, x=ox+tt*420, y=(1-tt)*(1-tt)*40+2*(1-tt)*tt*95+tt*tt*40;
+      if(night){ const tw=0.6+0.4*Math.sin(t*0.08+i*1.7+s); const col=['#FCB900','#FF6B6B','#8ED1FC','#7BDCB5'][i%4]; ctx.fillStyle='#333'; ctx.fillRect(x-2,y,4,7); ctx.save(); ctx.globalAlpha=tw; ctx.shadowColor=col; ctx.shadowBlur=14; ctx.fillStyle=col; ctx.beginPath(); ctx.arc(x,y+13,6,0,Math.PI*2); ctx.fill(); ctx.restore(); }
+      else { ctx.fillStyle=THEME==='carnaval'?CARN[i%3]:THEME==='pasen'?PAAS[i%5]:i%2?'#fff':'#D20000'; ctx.beginPath(); ctx.moveTo(x-13,y); ctx.lineTo(x+13,y); ctx.lineTo(x,y+26); ctx.closePath(); ctx.fill(); ctx.strokeStyle='rgba(120,0,0,.25)'; ctx.lineWidth=1; ctx.stroke(); } } }
+  ctx.restore(); }
+function drawShelvesBg(px,night){ ctx.save(); ctx.translate(-px,0); const startS=Math.floor(px/260)-1;
+  for(let s=startS;s<=startS+6;s++){ const sx=s*260+40; ctx.fillStyle=night?'rgba(255,255,255,.04)':'rgba(210,0,0,.07)'; ctx.fillRect(sx,150,180,300);
+    for(let k=0;k<3;k++){ const sy=200+k*90; ctx.fillStyle=night?'rgba(0,0,0,.25)':'rgba(120,60,60,.10)'; ctx.fillRect(sx-6,sy+28,192,8);
+      for(let b=0;b<5;b++){ ctx.fillStyle=CONF[(s*7+k*3+b)%CONF.length]; ctx.globalAlpha=night?0.16:0.22;
+        if(THEME==='kerst'&&(s+k+b)%5===2){ ctx.fillStyle=night?'#7BDCB5':'#2E7D32'; ctx.beginPath(); ctx.moveTo(sx+22+b*36,sy-8); ctx.lineTo(sx+34+b*36,sy+28); ctx.lineTo(sx+10+b*36,sy+28); ctx.closePath(); ctx.fill(); }
+        else if(THEME==='pasen'){ ctx.save(); ctx.translate(sx+22+b*36,sy+16); ctx.globalAlpha=night?0.2:0.36; drawPaasThing((s*3+k*2+b+30)%3,PAAS[(s*2+k+b)%5]); ctx.restore(); }
+        else if(THEME==='carnaval'){ ctx.save(); ctx.translate(sx+22+b*36,sy+16); ctx.globalAlpha=night?0.2:0.32; drawCarnavalThing((s*3+k*2+b+30)%3,CARN[(s+k+b)%3]); ctx.restore(); }
+        else if(THEME==='sint'){ ctx.save(); ctx.translate(sx+22+b*36,sy+16); ctx.globalAlpha=night?0.2:0.3; drawSintThing((s*3+k*2+b+40)%5,ctx.fillStyle); ctx.restore(); }
+        else if(THEME==='kerst'){ const bx=sx+11+b*36, bh=16+((s+k+b)%3)*5; ctx.fillRect(bx,sy+28-bh,22,bh); ctx.fillStyle='#fff'; ctx.fillRect(bx+9,sy+28-bh,4,bh); ctx.fillRect(bx,sy+28-bh*0.6,22,3); } // presents
+        else { ctx.beginPath(); ctx.ellipse(sx+22+b*36,sy+10,12,15,0,0,Math.PI*2); ctx.fill(); }
+        ctx.globalAlpha=1; } } }
+  ctx.restore(); }
+/* Clowntje, the hero of every game: whole figure (platformer, snake), head as balloon (flappy). Drawn with the feet at (x,y), about 52 units tall before scaling S.
+   o: {face, p (walk phase 0..1), walking, air, vy (scaled: <0 rising), squash 0..1, lk:{x,y} eye direction, t}.
+   Source sketches with more faces and the full walk/jump study: design/clown.html. */
+const CLOWN=(()=>{
+  // outfits: het clowntje (red suit, blue legs) and het clownmeisje (pink dress, white tights, purple pigtails, a bow);
+  // during Sinterklaas both are pietjes (purple, yellow tights, a white lace collar, a beret with a feather)
+  const OUTS={clown:{suit:'#D20000',suitB:'#a30000',leg:'#3a7bd5',legB:'#2a5ca8',ruf:'#8ED1FC',dot:'#fff',shoe:'#D20000',shoeB:'#a30000'},
+    meisje:{suit:'#F78DA7',suitB:'#E06A8A',leg:'#fff',legB:'#e9e4e0',ruf:'#FCB900',dot:'#fff',shoe:'#9B51E0',shoeB:'#7a3fb5',dress:true},
+    pietje:{suit:'#7B1FA2',suitB:'#5A1478',leg:'#FCB900',legB:'#C79100',ruf:'#EDE3F7',dot:'#FCB900',shoe:'#D20000',shoeB:'#a30000'}};
+  const outfit=w=>THEME==='sint'?{...OUTS.pietje,dress:w==='meisje',girl:w==='meisje'}:{...OUTS[w==='meisje'?'meisje':'clown'],girl:w==='meisje'};
+  let OUT=outfit('clown'); // set at the start of every draw call from o.who (default: HERO)
+  const INK='#1a1414', SKIN='#FFF4EA', STRIDE=8, LIFT=3, ANKLE=2.2, HIP=-13.4, RAISE=-1.8;
+  const ink=(w=1.1)=>{ ctx.strokeStyle=INK; ctx.lineWidth=w; ctx.lineJoin='round'; ctx.lineCap='round'; };
+  const circ=(x,y,r,fill,stroke=true)=>{ ctx.beginPath(); ctx.arc(x,y,r,0,7); ctx.fillStyle=fill; ctx.fill(); if(stroke){ ink(); ctx.stroke(); } };
+  const ell=(x,y,rx,ry,rot,fill,stroke=true)=>{ ctx.beginPath(); ctx.ellipse(x,y,rx,ry,rot,0,7); ctx.fillStyle=fill; ctx.fill(); if(stroke){ ink(); ctx.stroke(); } };
+  const seg=(ax,ay,bx,by,col,w)=>{ ink(w+1.6); ctx.beginPath(); ctx.moveTo(ax,ay); ctx.lineTo(bx,by); ctx.stroke(); ctx.strokeStyle=col; ctx.lineWidth=w; ctx.beginPath(); ctx.moveTo(ax,ay); ctx.lineTo(bx,by); ctx.stroke(); };
+  const smooth=t=>t*t*(3-2*t), clamp=(v,a,b)=>Math.max(a,Math.min(b,v)), mix=(a,b,k)=>a+(b-a)*k;
+  function logoEye(x,y,s,rot,lk){ ctx.save(); ctx.translate(x,y); ctx.scale(s,s); ctx.save(); ctx.rotate(rot); ell(0,0,4.2,6,0,'#fff'); ctx.restore();
+    circ(-rot*6+lk.x*1.6,2.4+lk.y*1.4,1.5,INK,false); circ(-rot*6+lk.x*1.6-0.5,1.9+lk.y*1.4,0.5,'#fff',false);
+    const sd=Math.sign(rot)||1; ink(0.8); for(let k=0;k<3;k++){ const a=(sd>0?0.15:Math.PI-0.15)+sd*k*0.38, bx=sd*3.8, by=3; ctx.beginPath(); ctx.moveTo(bx,by+k*0.9); ctx.lineTo(bx+Math.cos(a)*2.1,by+k*0.9+Math.sin(a)*2.1); ctx.stroke(); }
+    ctx.restore(); }
+  function nose(x,y,r){ const g=ctx.createRadialGradient(x-r*0.4,y-r*0.4,0.3,x,y,r); g.addColorStop(0,'#FF6B6B'); g.addColorStop(0.6,'#D20000'); g.addColorStop(1,'#9E0000'); circ(x,y,r,g); circ(x-r*0.38,y-r*0.38,r*0.28,'rgba(255,255,255,.85)',false); }
+  function face(x,y,lk){ circ(x-7,y+3.8,2.4,'rgba(247,141,167,.75)',false); circ(x+7,y+3.8,2.4,'rgba(247,141,167,.75)',false);
+    if(THEME==='sint'){ ell(x+6.4,y+0.6,2.6,1.1,-0.4,'rgba(70,55,55,.32)',false); ell(x-6.2,y-8.4,2.2,0.9,0.3,'rgba(70,55,55,.28)',false); ell(x-7.6,y+0.2,1.5,0.8,0.5,'rgba(70,55,55,.25)',false); } // roetvegen from the chimney
+    logoEye(x-2,y-4.6,0.6,-0.18,lk); logoEye(x+2.2,y-4.6,0.6,0.18,lk);
+    ink(1.3); ctx.strokeStyle='#D20000'; ctx.beginPath(); ctx.arc(x+0.2,y+5.2,3.2,0.15*Math.PI,0.85*Math.PI); ctx.stroke(); nose(x+0.2,y+1.9,2.5); }
+  function footAt(q){ q=((q%1)+1)%1;
+    if(q<0.6){ const t=q/0.6; return {x:STRIDE/2-STRIDE*t, y:0, roll:t>0.75?(t-0.75)*1.6:0}; }
+    const t=(q-0.6)/0.4; return {x:-STRIDE/2+STRIDE*smooth(t), y:-LIFT*Math.sin(Math.PI*t), roll:0.35*Math.sin(Math.PI*t)}; }
+  function legTo(hx,hy,fx,fy,roll,f,back){ seg(hx,hy,fx,fy,back?OUT.legB:OUT.leg,2.6);
+    ctx.save(); ctx.translate(fx,fy); ctx.rotate(-f*roll); ell(f*2.5,-0.1,4.8,2.3,0,back?OUT.shoeB:OUT.shoe); ell(f*3.6,-1,1.4,0.7,f*0.3,'rgba(255,255,255,.55)',false); ctx.restore(); }
+  function armTo(sx,sy,hx,hy,back){ seg(sx,sy,hx,hy,back?OUT.suitB:OUT.suit,2.4); circ(hx,hy,2.3,back?'#e9e4e0':'#fff'); }
+  function hat(x,y,f){ ctx.save(); ctx.translate(x,y);
+    if(THEME==='sint'){ ctx.translate(0,-3.2); ctx.rotate(f*0.18); ctx.scale(f,1); // a pietje's beret, tilted, with a feather towards the back
+      ell(-0.5,1.2,10.5,3.2,0,'#5A1478'); ell(0.5,-1.8,10,5.2,-0.08,OUT.suit); circ(0.5,-6.5,1.6,'#5A1478');
+      ctx.save(); ctx.translate(-4,-3.5); ctx.rotate(-0.9); ctx.beginPath(); ctx.moveTo(0,0); ctx.quadraticCurveTo(-3.6,-8,1,-15); ctx.quadraticCurveTo(3.4,-7,0,0); ctx.fillStyle='#FCB900'; ctx.fill(); ink(0.8); ctx.stroke();
+      ctx.strokeStyle='#C79100'; ctx.lineWidth=0.7; ctx.beginPath(); ctx.moveTo(0,-1); ctx.quadraticCurveTo(-0.6,-8,1,-14); ctx.stroke(); ctx.restore(); ctx.restore(); return; }
+    if(THEME==='carnaval'){ ctx.translate(0,-1.5); ctx.rotate(f*0.1); // a narrenkap: three floppy points in rood-geel-groen with bells
+      for(const [px,py,col] of [[-11,-5,'#D20000'],[11,-5,'#2E9E44'],[0,-14,'#FCB900']]){ ctx.beginPath(); ctx.moveTo(-6.5,2); ctx.quadraticCurveTo(px*0.4,py*0.4-4,px,py); ctx.quadraticCurveTo(px*0.3,py*0.3,6.5,2); ctx.closePath(); ctx.fillStyle=col; ctx.fill(); ink(); ctx.stroke(); circ(px,py,1.9,'#FCB900'); }
+      rr(-7.5,-0.5,15,3.6,1.8); ctx.fillStyle='#fff'; ctx.fill(); ink(); ctx.stroke(); ctx.restore(); return; }
+    if(THEME==='pasen'){ ctx.translate(0,1); ctx.rotate(f*0.08); // bunny ears on a pink headband, the back one bent over
+      ctx.save(); ctx.translate(-f*3.5,-2); ctx.rotate(-f*0.25); ell(0,-8,3.2,8.5,0,'#fff'); ell(0,-8,1.6,6.2,0,'#F7A8C0',false); ctx.restore();
+      ctx.save(); ctx.translate(f*3.5,-2); ctx.rotate(f*0.3); ell(0,-6,3.2,6,0,'#fff'); ctx.translate(f*1.5,-11); ctx.rotate(f*1.1); ell(0,-2.5,3,4,0,'#fff'); ell(0,-2.5,1.4,2.6,0,'#F7A8C0',false); ctx.restore();
+      rr(-8,-1,16,3.2,1.6); ctx.fillStyle='#F78DA7'; ctx.fill(); ink(); ctx.stroke(); ctx.restore(); return; }
+    if(THEME==='kerst'){ ctx.rotate(f*0.3); ctx.scale(-f,1); // a Santa hat drooping backwards, white trim and pompom
+      ctx.beginPath(); ctx.moveTo(-5.5,1); ctx.quadraticCurveTo(-3.5,-8,3,-11); ctx.quadraticCurveTo(7,-12.5,8.5,-7.5); ctx.lineTo(5.5,1); ctx.closePath(); ctx.fillStyle='#D20000'; ctx.fill(); ink(); ctx.stroke();
+      rr(-6.8,-0.6,13.6,3.8,1.9); ctx.fillStyle='#fff'; ctx.fill(); ink(); ctx.stroke(); circ(8.6,-7.2,2.4,'#fff'); ctx.restore(); return; }
+    if(OUT.girl){ ctx.translate(0,-1); ctx.rotate(f*0.15); for(const sd of [-1,1]){ ctx.beginPath(); ctx.moveTo(0,0); ctx.lineTo(sd*6.5,-3.8); ctx.lineTo(sd*6.5,3.8); ctx.closePath(); ctx.fillStyle='#D20000'; ctx.fill(); ink(); ctx.stroke(); } circ(0,0,1.9,'#D20000'); ctx.restore(); return; } // a bow
+    ctx.rotate(f*0.3); ctx.beginPath(); ctx.moveTo(-5.5,2); ctx.lineTo(5.5,2); ctx.lineTo(0,-11); ctx.closePath(); ctx.fillStyle='#FCB900'; ctx.fill(); ink(); ctx.stroke();
+    ctx.strokeStyle='#D20000'; ctx.lineWidth=1.4; ctx.beginPath(); ctx.moveTo(-3.6,-2.5); ctx.lineTo(3,-1); ctx.moveTo(-1.6,-7); ctx.lineTo(2,-6); ctx.stroke(); circ(0,-11.5,2,'#D20000'); ctx.restore(); }
+  function basket(x,y){ // a red shopping basket, bottom at y, rim 12 units higher
+    ctx.beginPath(); ctx.moveTo(x-17,y-12); ctx.lineTo(x+17,y-12); ctx.lineTo(x+13,y); ctx.lineTo(x-13,y); ctx.closePath(); ctx.fillStyle='#D20000'; ctx.fill(); ink(); ctx.stroke();
+    ctx.strokeStyle='rgba(255,255,255,.75)'; ctx.lineWidth=1; for(let k=-10;k<=10;k+=5){ ctx.beginPath(); ctx.moveTo(x+k*1.15,y-11); ctx.lineTo(x+k*0.85,y-1); ctx.stroke(); }
+    ctx.beginPath(); ctx.moveTo(x-15,y-6); ctx.lineTo(x+15,y-6); ctx.stroke(); rr(x-18,y-14,36,3,1.5); ctx.fillStyle='#9E0000'; ctx.fill(); }
+  function hairBack(f,y0,lift){ // clown: orange tufts; girl: purple pigtails with gold ties. lift > 0 pushes the hair down
+    if(OUT.girl){ for(const s of [-1,1]){ ell(s*13+f*0.4,y0-1+lift*1.2,3.4,5.4,s*0.5,'#9B51E0'); circ(s*10.6,y0-4.5,1.6,'#FCB900'); } return; }
+    for(const s of [-1,1]) for(let i=0;i<3;i++) circ(s*(10.5+i*0.6)+f*0.5,y0-4.5+i*3.4+lift*(i+1)*0.4,2.8,'#FF8A1F'); }
+  function fringe(f,y0){ if(!OUT.girl) return; const cx=f*0.6, cy=y0-1, r=11.3;
+    ctx.beginPath(); ctx.arc(cx,cy,r,Math.PI*1.1,Math.PI*1.9); ctx.quadraticCurveTo(cx+f*2,y0-5.5,cx-Math.cos(Math.PI*0.1)*r,cy-Math.sin(Math.PI*0.1)*r); ctx.fillStyle='#9B51E0'; ctx.fill(); ink(); ctx.stroke(); }
+  const hero=function(x0,y0,S,o){ OUT=outfit(o.who||HERO); const f=o.face||1, p=o.p||0, air=!!o.air, walking=!!o.walking&&!air, lk=o.lk||{x:0.6,y:0.5}, t=o.t||0;
+    const vy=o.vy||0, sq=clamp(o.squash||0,0,1), k=clamp((vy+3)/6,0,1), st=air?clamp(-vy/8,0,1):0; // k: 0 rising .. 1 falling
+    const bob=walking?0.75*Math.cos(4*Math.PI*p)+0.3:air?0:0.35*Math.sin(t*0.05)*(1-sq);
+    const lift=air?-st*1.2:0, drop=sq*4.2, hy=HIP+bob+drop+lift, nX=-f*1.6, bX=f*1.6;
+    let N,B;
+    if(air){ N={x:mix(f*3.8,f*2.2,k),y:hy+mix(6.6,11.6,k),r:mix(0.5,-0.2,k)}; B={x:mix(-f*1,-f*3.2,k),y:hy+mix(9.6,11.2,k),r:mix(0.35,-0.15,k)}; }
+    else if(walking){ const fn=footAt(p), fb=footAt(p+0.5); N={x:nX+f*fn.x,y:-ANKLE+fn.y,r:fn.roll}; B={x:bX+f*fb.x,y:-ANKLE+fb.y,r:fb.roll}; }
+    else { N={x:nX-f*sq*1.8,y:-ANKLE,r:0}; B={x:bX+f*sq*1.8,y:-ANKLE,r:0}; }
+    ctx.save(); ctx.translate(x0,y0); ctx.scale(S,S);
+    legTo(bX,hy,B.x,B.y,B.r,f,true); legTo(nX,hy,N.x,N.y,N.r,f,false);
+    ctx.translate(0,bob+RAISE+drop+lift); ctx.translate(0,HIP); ctx.scale(1+0.12*sq-0.06*st,1-0.13*sq+0.1*st); ctx.translate(0,-HIP);
+    ctx.rotate(walking?f*0.05:air?f*mix(-0.04,0.06,k):-f*0.06*sq);
+    const SY=-21.2, hand=(s,ang)=>({x:s*5.6+Math.sin(ang)*6.6*f,y:SY+Math.cos(ang)*6.6});
+    let hB,hN;
+    if(air){ const w=Math.sin(t*0.5)*1.6*k; hB={x:f*mix(12.5,12,k),y:mix(-31,-19,k)-w}; hN={x:-f*mix(12.5,12,k),y:mix(-31,-19,k)+w}; }
+    else { const sw=walking?Math.cos(2*Math.PI*p)*0.65:0.06*Math.sin(t*0.05), back=-0.8*sq; hB=hand(f,sw+back); hN=hand(-f,-sw+back); }
+    const carry=!!o.carry; // both hands up holding a basket above the head (Winkelmandje)
+    if(!air&&!carry) armTo(f*5.6,SY,hB.x,hB.y,true);
+    if(OUT.dress){ const sw=walking?Math.sin(4*Math.PI*p)*0.9:air?f*mix(-1.2,1.2,k):0; // the skirt swings with the steps and lifts in a jump
+      ctx.beginPath(); ctx.moveTo(-5,-24); ctx.lineTo(-10.5+sw,-8.5); ctx.quadraticCurveTo(sw,-6,10.5+sw,-8.5); ctx.lineTo(5,-24); ctx.closePath(); ctx.fillStyle=OUT.suit; ctx.fill(); ink(); ctx.stroke();
+      for(const [dx,dy] of [[-4,-14],[0,-17],[4,-13],[-1.5,-11],[2,-21],[6.5,-10.5],[-6.5,-11]]) circ(dx+(dy>-15?sw*0.6:0),dy,1.1,OUT.dot,false); }
+    else { ctx.beginPath(); ctx.moveTo(-6.5,-24); ctx.quadraticCurveTo(-9.5,-12,-6,-10); ctx.lineTo(6,-10); ctx.quadraticCurveTo(9.5,-12,6.5,-24); ctx.closePath(); ctx.fillStyle=OUT.suit; ctx.fill(); ink(); ctx.stroke();
+      for(const [dx,dy] of [[-3,-20],[2.5,-17],[-1,-13.5],[4,-22],[-4.5,-15]]) circ(dx,dy,1.1,OUT.dot,false);
+      circ(f*0.4,-19,1.2,'#FCB900'); circ(f*0.4,-14.5,1.2,'#FCB900'); }
+    if(!air&&!carry) armTo(-f*5.6,SY,hN.x,hN.y,false);
+    for(let i=0;i<7;i++){ const a=Math.PI*(0.08+i*0.84/6); circ(-Math.cos(a)*7,-24+Math.sin(a)*1.2,2.2,i%2?OUT.ruf:'#fff'); }
+    if(air&&!carry){ armTo(f*5.6,SY,hB.x,hB.y,true); armTo(-f*5.6,SY,hN.x,hN.y,false); }
+    hairBack(f,-35.5,air?mix(1.5,-1.5,k):0);
+    circ(f*0.6,-35.5,11,SKIN); fringe(f,-35.5);
+    face(f*1.6,-35.5,air?{x:lk.x,y:mix(-1,1,k)}:lk);
+    hat(f*1.5,-46.5+(air?mix(0,-1.2,k):0),f);
+    if(carry){ const sw=walking?Math.sin(2*Math.PI*p)*0.8:0; armTo(f*5.6,SY,f*12,-57+sw,true); armTo(-f*5.6,SY,-f*12,-57-sw,false); basket(0,-58+Math.abs(sw)*0.5); }
+    ctx.restore(); };
+  // the head on its own, centred on (x0,y0): hair, face, hat. o: {face, lk, rot, hair (lift of the tufts)}
+  function headAt(f,lk,hair){ hairBack(f,0,-(hair||0)); circ(f*0.6,0,11,SKIN); fringe(f,0); face(f*1.6,0,lk); hat(f*1.5,-11,f); }
+  const head=function(x0,y0,S,o){ OUT=outfit(o.who||HERO); const f=o.face||1; ctx.save(); ctx.translate(x0,y0); ctx.rotate(o.rot||0); ctx.scale(S,S); headAt(f,o.lk||{x:0.6,y:0.5},o.hair); ctx.restore(); };
+  // the head as a balloon: (x0,y0) is the knot at the bottom; the head centre sits 16*S above it
+  const headBalloon=function(x0,y0,S,o){ OUT=outfit(o.who||HERO); const f=o.face||1, a=o.t||0;
+    ctx.save(); ctx.translate(x0,y0); ctx.rotate(o.rot||0); ctx.scale(S,S);
+    ctx.strokeStyle='#5a4444'; ctx.lineWidth=1.3; ctx.beginPath(); ctx.moveTo(0,-2); ctx.quadraticCurveTo(-f*3,6,Math.sin(a*0.2)*2,12); ctx.stroke();
+    for(let i=0;i<5;i++){ const an=Math.PI*(0.1+i*0.8/4); circ(-Math.cos(an)*4.6,-4.4+Math.sin(an)*0.9,1.7,i%2?OUT.ruf:'#fff'); }
+    ctx.save(); ctx.translate(0,-16); ctx.scale(13/11,13/11); headAt(f,o.lk||{x:0.6,y:0.5},o.hair); ctx.restore();
+    ctx.restore(); };
+  // a red balloon with the clown face painted on it, plus hair and hat (alternative for flappy)
+  const paintedBalloon=function(x0,y0,S,o){ const f=o.face||1, a=o.t||0, lk=o.lk||{x:0.6,y:0.5};
+    ctx.save(); ctx.translate(x0,y0); ctx.rotate(o.rot||0); ctx.scale(S,S);
+    ctx.strokeStyle='#5a4444'; ctx.lineWidth=1.3; ctx.beginPath(); ctx.moveTo(0,-2); ctx.quadraticCurveTo(-f*3,6,Math.sin(a*0.2)*2,12); ctx.stroke();
+    ctx.fillStyle='#9E0000'; ctx.beginPath(); ctx.moveTo(-3,-3); ctx.lineTo(3,-3); ctx.lineTo(0,1); ctx.closePath(); ctx.fill();
+    for(const s of [-1,1]) for(let i=0;i<3;i++) circ(s*(12+i*0.5)+f*0.4,-20+i*3.3,2.6,'#FF8A1F');
+    const g=ctx.createRadialGradient(-5*f,-22,2,0,-16,16); g.addColorStop(0,'#FF6B6B'); g.addColorStop(0.55,'#D20000'); g.addColorStop(1,'#9E0000');
+    ctx.beginPath(); ctx.ellipse(0,-16,13,14.5,0,0,7); ctx.fillStyle=g; ctx.fill(); ink(); ctx.stroke();
+    ell(-5*f,-23,3.2,4.6,f*0.5,'rgba(255,255,255,.5)',false);
+    logoEye(f*1.6-2,-20,0.62,-0.18,lk); logoEye(f*1.6+2.2,-20,0.62,0.18,lk);
+    circ(f*1.6-7,-11.6,2.2,'rgba(255,190,200,.55)',false); circ(f*1.6+7,-11.6,2.2,'rgba(255,190,200,.55)',false);
+    ink(1.5); ctx.strokeStyle='#fff'; ctx.beginPath(); ctx.arc(f*1.6+0.2,-10.4,3.4,0.15*Math.PI,0.85*Math.PI); ctx.stroke();
+    const ng=ctx.createRadialGradient(f*1.6-1,-14.6,0.3,f*1.6+0.2,-13.6,2.8); ng.addColorStop(0,'#FF9A9A'); ng.addColorStop(1,'#B00000'); circ(f*1.6+0.2,-13.6,2.7,ng); circ(f*1.6-0.8,-14.6,0.7,'rgba(255,255,255,.85)',false);
+    hat(f*1.5,-29.5,f);
+    ctx.restore(); };
+  return {hero,head,headBalloon,paintedBalloon};
+})();
+const drawClownHero=CLOWN.hero, drawClownHead=CLOWN.head;
+function drawCoin(x,y,t,ph=0){ y=y+Math.sin(t*0.06+ph)*3; ctx.strokeStyle='#b28a00'; ctx.lineWidth=1; ctx.beginPath(); ctx.moveTo(x,y+7); ctx.quadraticCurveTo(x+3,y+12,x-1,y+16); ctx.stroke(); const g=ctx.createRadialGradient(x-2,y-3,1,x,y,8); g.addColorStop(0,'#FFE680'); g.addColorStop(1,'#E5A700'); ctx.fillStyle=g; ctx.beginPath(); ctx.ellipse(x,y,7,8.5,0,0,Math.PI*2); ctx.fill(); ctx.fillStyle='rgba(255,255,255,.7)'; ctx.beginPath(); ctx.ellipse(x-2.5,y-3,2,3,-0.5,0,Math.PI*2); ctx.fill(); }
+function drawCard(i,x,y,t,ph=0,s=44,night=false){ y=y+Math.sin(t*0.05+ph)*4; const pulse=0.5+0.5*Math.sin(t*0.1+ph);
+  ctx.save(); ctx.shadowColor=night?'rgba(255,200,120,'+(0.5+pulse*0.4)+')':'rgba(210,0,0,'+(0.35+pulse*0.4)+')'; ctx.shadowBlur=14+pulse*10; ctx.fillStyle='#fff'; rr(x-s/2,y-s/2,s,s,8); ctx.fill(); ctx.restore();
+  ctx.strokeStyle='#D20000'; ctx.lineWidth=3; rr(x-s/2,y-s/2,s,s,8); ctx.stroke();
+  const im=IMG[i]; if(im.complete&&im.naturalWidth){ ctx.save(); rr(x-s/2+5,y-s/2+5,s-10,s-10,4); ctx.clip(); ctx.drawImage(im,x-s/2+5,y-s/2+5,s-10,s-10); ctx.restore(); }
+  const sa=t*0.15+ph; ctx.fillStyle='#fff'; ctx.save(); ctx.translate(x+s/2-4,y-s/2+4); ctx.rotate(sa); const r=3+pulse*3; ctx.beginPath(); ctx.moveTo(0,-r); ctx.lineTo(r*.3,-r*.3); ctx.lineTo(r,0); ctx.lineTo(r*.3,r*.3); ctx.lineTo(0,r); ctx.lineTo(-r*.3,r*.3); ctx.lineTo(-r,0); ctx.lineTo(-r*.3,-r*.3); ctx.closePath(); ctx.fill(); ctx.restore(); }
+function drawPin(x,y,scale=1){ ctx.save(); ctx.translate(x,y); ctx.scale(scale,scale); ctx.strokeStyle='#8f97a3'; ctx.lineWidth=3; ctx.beginPath(); ctx.moveTo(0,12); ctx.lineTo(0,-11); ctx.stroke(); ctx.strokeStyle='#dfe4ea'; ctx.lineWidth=1; ctx.beginPath(); ctx.moveTo(-1,12); ctx.lineTo(-1,-10); ctx.stroke(); ctx.fillStyle='#e8ecf0'; ctx.beginPath(); ctx.moveTo(-2.5,-9); ctx.lineTo(0,-16); ctx.lineTo(2.5,-9); ctx.closePath(); ctx.fill(); ctx.fillStyle='#D20000'; ctx.beginPath(); ctx.arc(0,12,5.5,0,Math.PI*2); ctx.fill(); ctx.fillStyle='rgba(255,255,255,.5)'; ctx.beginPath(); ctx.arc(-2,10,1.8,0,Math.PI*2); ctx.fill(); ctx.restore(); }
+function drawKassa(x,y,t){
+  ctx.fillStyle='rgba(0,0,0,.1)'; rr(x-4,y+T*2-4,72,6,3); ctx.fill();
+  ctx.fillStyle='#1A1414'; rr(x-2,y+30,68,34,4); ctx.fill(); ctx.fillStyle='#D20000'; ctx.fillRect(x-2,y+30,68,5);
+  for(let i=0;i<68;i+=12){ ctx.fillStyle=(i/12)%2?'#fff':'#D20000'; ctx.fillRect(x-2+i,y+58,Math.min(12,68-i),6); }
+  ctx.fillStyle='#fff'; rr(x+8,y+4,48,28,5); ctx.fill(); ctx.strokeStyle='#1A1414'; ctx.lineWidth=2; rr(x+8,y+4,48,28,5); ctx.stroke();
+  ctx.fillStyle='#8ED1FC'; rr(x+14,y+8,20,12,2); ctx.fill(); ctx.fillStyle='#1A1414'; ctx.font='bold 8px Roboto, sans-serif'; ctx.fillText('€'+(collected*100+coinsGot*10),x+16,y+17);
+  ctx.fillStyle='#D20000'; for(let r=0;r<2;r++) for(let c=0;c<3;c++){ ctx.fillRect(x+38+c*6,y+9+r*6,4,4); }
+  ctx.fillStyle='#1A1414'; ctx.fillRect(x+12,y+24,40,4);
+  const bob=Math.sin(t*0.05)*2; ctx.save(); ctx.translate(x+32,y-14+bob); ctx.rotate(-0.05); ctx.fillStyle='#D20000'; rr(-30,-11,60,22,6); ctx.fill(); ctx.fillStyle='#9E0000'; ctx.fillRect(-30,9,60,3); ctx.fillStyle='#fff'; ctx.font='900 15px Grandstander, Impact, sans-serif'; ctx.textAlign='center'; ctx.fillText('KASSA',0,6); ctx.textAlign='left'; ctx.restore();
+  if(THEME==='sint'){ // a chocolate letter J on the left, a shoe with a present on the right
+    ctx.save(); ctx.translate(x-20,y+62); ctx.rotate(-0.08); ctx.font='900 34px Grandstander, Impact, sans-serif'; ctx.textAlign='center'; ctx.lineWidth=3; ctx.strokeStyle='#3E1F0D'; ctx.strokeText('J',0,0); ctx.fillStyle='#7B4A26'; ctx.fillText('J',0,0); ctx.fillStyle='rgba(255,255,255,.25)'; ctx.fillRect(-3,-22,2,14); ctx.restore();
+    ctx.save(); ctx.translate(x+84,y+64); ctx.fillStyle='#1A1414'; ctx.beginPath(); ctx.moveTo(-14,0); ctx.lineTo(-14,-9); ctx.quadraticCurveTo(-12,-13,-6,-12); ctx.lineTo(4,-8); ctx.quadraticCurveTo(14,-7,14,0); ctx.closePath(); ctx.fill();
+    ctx.fillStyle='#D20000'; ctx.fillRect(-12,-24,13,12); ctx.fillStyle='#FCB900'; ctx.fillRect(-6.5,-24,2,12); ctx.fillRect(-12,-19,13,2); ctx.restore(); }
+  else if(THEME==='pasen'){ // a nest with three Easter eggs on the right
+    ctx.save(); ctx.translate(x+86,y+62); [[-7,-6,0],[6,-7,2],[0,-10,3]].forEach(([ex,ey,c],i)=>{ ctx.fillStyle=PAAS[c]; ctx.beginPath(); ctx.ellipse(ex,ey,5,6.5,i?0.2:-0.2,0,Math.PI*2); ctx.fill(); });
+    ctx.fillStyle='#A1784A'; ctx.beginPath(); ctx.ellipse(0,-1,15,5,0,0,Math.PI); ctx.lineTo(-15,-3); ctx.fill(); ctx.strokeStyle='#7A5530'; ctx.lineWidth=1; for(let k=-12;k<=12;k+=4){ ctx.beginPath(); ctx.moveTo(k,-3); ctx.lineTo(k+3,2); ctx.stroke(); } ctx.restore(); }
+  else if(THEME==='carnaval'){ // three balloons in rood-geel-groen tied to the KASSA sign
+    CARN.forEach((c,i)=>{ const bx=x+12+i*20, by=y-46-(i===1?8:0)+Math.sin(t*0.05+i)*2; ctx.strokeStyle='#5a4444'; ctx.lineWidth=1; ctx.beginPath(); ctx.moveTo(bx,by+11); ctx.lineTo(x+32,y-4); ctx.stroke(); ctx.fillStyle=c; ctx.beginPath(); ctx.ellipse(bx,by,8,10,0,0,Math.PI*2); ctx.fill(); ctx.fillStyle='rgba(255,255,255,.5)'; ctx.beginPath(); ctx.ellipse(bx-3,by-4,2,3,-0.4,0,Math.PI*2); ctx.fill(); }); }
+  else if(THEME==='kerst'){ // a small Christmas tree on the right
+    ctx.save(); ctx.translate(x+88,y+64); ctx.fillStyle='#6B3A1E'; ctx.fillRect(-4,-8,8,8);
+    for(const [w,yy] of [[18,-8],[14,-22],[10,-34]]){ ctx.fillStyle='#2E7D32'; ctx.beginPath(); ctx.moveTo(-w,yy); ctx.lineTo(w,yy); ctx.lineTo(0,yy-18); ctx.closePath(); ctx.fill(); }
+    [[-9,-12,'#D20000'],[7,-15,'#FCB900'],[-4,-27,'#1E88E5'],[5,-38,'#D20000']].forEach(([bx,by,c],i)=>{ ctx.globalAlpha=0.7+0.3*Math.sin(t*0.08+i*1.7); ctx.fillStyle=c; ctx.beginPath(); ctx.arc(bx,by,2.6,0,Math.PI*2); ctx.fill(); }); ctx.globalAlpha=1;
+    ctx.fillStyle='#FCB900'; ctx.beginPath(); for(let k=0;k<10;k++){ const a=-Math.PI/2+k*Math.PI/5, r=k%2?2.4:6; ctx.lineTo(Math.cos(a)*r,-52+Math.sin(a)*r); } ctx.closePath(); ctx.fill(); ctx.restore(); } }
+/* snow (kerst) on top of any game, in screen space; stateless (a function of the frame counter) so step() stays deterministic */
+const REDUCED=!!(typeof window!=='undefined'&&window.matchMedia&&window.matchMedia('(prefers-reduced-motion: reduce)').matches);
+function drawSeason(t){
+  if(THEME==='sint'){ // now and then a few pepernoten are strooid from the top
+    const n=REDUCED?5:12, sp=REDUCED?0.4:1; ctx.save();
+    for(let i=0;i<n;i++){ const y=((i*131.7+t*(0.9+(i%4)*0.25)*sp)%(H*2.2))-20; if(y>H+10) continue; const x=(((i*211.3+Math.sin(t*0.02+i)*12)%W)+W)%W;
+      ctx.fillStyle='#A0632F'; ctx.beginPath(); ctx.arc(x,y,4.2,0,Math.PI*2); ctx.fill(); ctx.strokeStyle='#5C3317'; ctx.lineWidth=0.8; ctx.stroke(); ctx.fillStyle='rgba(255,220,170,.5)'; ctx.beginPath(); ctx.arc(x-1.3,y-1.3,1.2,0,Math.PI*2); ctx.fill(); }
+    ctx.restore(); return; }
+  if(THEME==='pasen'){ // blossom petals drifting down
+    const n=REDUCED?14:36, sp=REDUCED?0.35:1; ctx.save();
+    for(let i=0;i<n;i++){ const y=((i*83.1+t*(0.45+(i%4)*0.12)*sp)%(H+20))-10, x=(((i*157.3+Math.sin(t*0.02*sp+i)*30)%W)+W)%W, a=Math.sin(t*0.03*sp+i)*1.2+i;
+      ctx.save(); ctx.translate(x,y); ctx.rotate(a); ctx.fillStyle=i%3?'#F8BBD0':'#FFFFFF'; ctx.strokeStyle='rgba(216,120,160,.6)'; ctx.lineWidth=0.7; ctx.beginPath(); ctx.ellipse(0,0,4.5,2.6,0,0,Math.PI*2); ctx.fill(); ctx.stroke(); ctx.restore(); }
+    ctx.restore(); return; }
+  if(THEME==='carnaval'){ // confetti, spinning slowly down
+    const n=REDUCED?20:56, sp=REDUCED?0.35:1; ctx.save();
+    for(let i=0;i<n;i++){ const y=((i*61.3+t*(0.6+(i%5)*0.18)*sp)%(H+20))-10, x=(((i*137.9+Math.sin(t*0.015*sp+i)*22)%W)+W)%W, a=t*0.05*sp*(i%2?1:-1)+i;
+      ctx.save(); ctx.translate(x,y); ctx.rotate(a); ctx.scale(1,Math.abs(Math.cos(a*1.3))+0.2); ctx.fillStyle=[...CARN,'#9B51E0','#1E88E5','#F78DA7'][i%6]; ctx.fillRect(-3,-2,6,4); ctx.restore(); }
+    ctx.restore(); return; }
+  if(THEME!=='kerst') return; const n=REDUCED?24:70, sp=REDUCED?0.35:1; ctx.save(); ctx.fillStyle='#fff'; ctx.strokeStyle='rgba(120,150,195,.75)'; ctx.lineWidth=0.8; // outlined, so the flakes also show on the light shop walls
+  for(let i=0;i<n;i++){ const sz=1.2+(i%3)*0.9, vy=(0.35+(i%5)*0.12)*sp, y=((i*53.7+t*vy)%(H+20))-10, x=(((i*97.3+Math.sin(t*0.012*sp+i)*18)%W)+W)%W;
+    ctx.globalAlpha=0.6+0.1*(i%4); ctx.beginPath(); ctx.arc(x,y,sz,0,Math.PI*2); ctx.fill(); ctx.stroke(); }
+  ctx.restore(); }

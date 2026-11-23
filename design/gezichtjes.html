@@ -1,0 +1,106 @@
+<!DOCTYPE html><html lang="nl"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Gezichtjes clowntje</title>
+<style>body{margin:0;padding:16px;background:#fff;font-family:system-ui,sans-serif;color:#1a1414}canvas{width:100%;max-width:1100px;height:auto;border-radius:12px;display:block}</style></head><body>
+<canvas id="cv" width="1360" height="700"></canvas>
+<script>
+(function(){
+const INK='#1a1414', SKIN='#FFF4EA';
+let ctx;
+const ink=(w=1.1)=>{ ctx.strokeStyle=INK; ctx.lineWidth=w; ctx.lineJoin='round'; ctx.lineCap='round'; };
+const circ=(x,y,r,fill,stroke=true)=>{ ctx.beginPath(); ctx.arc(x,y,r,0,7); ctx.fillStyle=fill; ctx.fill(); if(stroke){ ink(); ctx.stroke(); } };
+const ell=(x,y,rx,ry,rot,fill,stroke=true)=>{ ctx.beginPath(); ctx.ellipse(x,y,rx,ry,rot,0,7); ctx.fillStyle=fill; ctx.fill(); if(stroke){ ink(); ctx.stroke(); } };
+const seg=(ax,ay,bx,by,col,w)=>{ ink(w+1.6); ctx.beginPath(); ctx.moveTo(ax,ay); ctx.lineTo(bx,by); ctx.stroke(); ctx.strokeStyle=col; ctx.lineWidth=w; ctx.beginPath(); ctx.moveTo(ax,ay); ctx.lineTo(bx,by); ctx.stroke(); };
+
+/* ---------- face parts ---------- */
+function logoEye(x,y,s,rot,lk){ ctx.save(); ctx.translate(x,y); ctx.scale(s,s); ctx.save(); ctx.rotate(rot); ell(0,0,4.2,6,0,'#fff'); ctx.restore();
+  circ(-rot*6+lk.x*1.6,2.4+lk.y*1.4,1.5,INK,false); circ(-rot*6+lk.x*1.6-0.5,1.9+lk.y*1.4,0.5,'#fff',false);
+  const sd=Math.sign(rot)||1; ink(0.8); for(let k=0;k<3;k++){ const a=(sd>0?0.15:Math.PI-0.15)+sd*k*0.38, bx=sd*3.8, by=3; ctx.beginPath(); ctx.moveTo(bx,by+k*0.9); ctx.lineTo(bx+Math.cos(a)*2.1,by+k*0.9+Math.sin(a)*2.1); ctx.stroke(); }
+  ctx.restore(); }
+function brow(x,y,s,rot){ ctx.save(); ctx.translate(x,y); ctx.scale(s,s); ctx.rotate(rot); ctx.fillStyle=INK; ctx.beginPath(); ctx.moveTo(-3.4,0.8); ctx.quadraticCurveTo(0,-3,3.4,0.8); ctx.quadraticCurveTo(0,-1,-3.4,0.8); ctx.fill(); ctx.restore(); }
+function closedEye(x,y,r,up){ ink(1.3); ctx.beginPath(); if(up) ctx.arc(x,y+r*0.6,r,Math.PI*1.15,Math.PI*1.85); else ctx.arc(x,y-r*0.6,r,Math.PI*0.15,Math.PI*0.85); ctx.stroke(); }
+function jSmile(x,y,s,rot=0){ ctx.save(); ctx.translate(x,y); ctx.rotate(rot); ctx.scale(s,s); const p=()=>{ ctx.beginPath(); ctx.moveTo(2.4,-3); ctx.lineTo(2.4,0.4); ctx.quadraticCurveTo(2.4,3.4,-0.6,3.2); ctx.quadraticCurveTo(-3,3,-3.2,0.8); };
+  ctx.lineCap='round'; ctx.strokeStyle='#7a0000'; ctx.lineWidth=3; p(); ctx.stroke(); ctx.strokeStyle='#D20000'; ctx.lineWidth=1.6; p(); ctx.stroke(); ctx.restore(); }
+function nose(x,y,r){ const g=ctx.createRadialGradient(x-r*0.4,y-r*0.4,0.3,x,y,r); g.addColorStop(0,'#FF6B6B'); g.addColorStop(0.6,'#D20000'); g.addColorStop(1,'#9E0000'); circ(x,y,r,g); circ(x-r*0.38,y-r*0.38,r*0.28,'rgba(255,255,255,.85)',false); }
+const cheeks=(x,y,r,a=.7)=>{ circ(x-7,y,r,`rgba(247,141,167,${a})`,false); circ(x+7,y,r,`rgba(247,141,167,${a})`,false); };
+
+// every face is drawn around (x, y) = head centre; face = looking direction
+const FACES={
+  logo:{name:'Logo-ogen + J',draw(x,y,f,lk){ cheeks(x,y+4.5,1.8); logoEye(x-2,y-4.6,0.6,-0.18,lk); logoEye(x+2.2,y-4.6,0.6,0.18,lk); brow(x-3,y-9.6,0.6,-0.35); brow(x+3.2,y-9.6,0.6,0.35); const J=window.CLOWN_J||{deg:40,dx:0.6,dy:0}; jSmile(x+f*J.dx,y+6.9+J.dy,0.72,f*J.deg*Math.PI/180); nose(x+0.2,y+2.1,2.9); }}, // J under the nose: tilt (deg) and offset like the logo
+  lach:{name:'Lachebek',draw(x,y,f,lk){ cheeks(x,y+3.5,2.4,.8); closedEye(x-3.3,y-3.6,2.3,true); closedEye(x+3.3,y-3.6,2.3,true); brow(x-3.4,y-8.8,0.5,-0.25); brow(x+3.4,y-8.8,0.5,0.25);
+    ctx.beginPath(); ctx.moveTo(x-5.4,y+4.6); ctx.quadraticCurveTo(x,y+5.6,x+5.4,y+4.6); ctx.quadraticCurveTo(x+4.6,y+11.8,x,y+11.6); ctx.quadraticCurveTo(x-4.6,y+11.8,x-5.4,y+4.6); ctx.closePath(); ctx.fillStyle='#7a0000'; ctx.fill(); ink(); ctx.stroke();
+    ctx.save(); ctx.clip(); ell(x+0.4,y+11,3.4,2.4,0,'#F78DA7',false); ctx.restore(); nose(x+0.2,y+2.1,2.9); }},
+  schmink:{name:'Geschminkt',draw(x,y,f,lk){ for(const s of [-1,1]){ ctx.beginPath(); ctx.moveTo(x+s*3.4,y-11.5); ctx.lineTo(x+s*5.6,y-4.4); ctx.lineTo(x+s*3.4,y+0.8); ctx.lineTo(x+s*1.2,y-4.4); ctx.closePath(); ctx.fillStyle='#3a7bd5'; ctx.fill(); ink(0.7); ctx.stroke();
+      ell(x+s*3.4,y-4.4,1.7,2.2,0,'#fff'); circ(x+s*3.4+lk.x*0.6,y-4+lk.y*0.5,0.9,INK,false); }
+    ctx.beginPath(); ctx.moveTo(x-7.5,y+4.2); ctx.quadraticCurveTo(x,y+8,x+7.5,y+4.2); ctx.quadraticCurveTo(x+5,y+11.5,x,y+11.3); ctx.quadraticCurveTo(x-5,y+11.5,x-7.5,y+4.2); ctx.fillStyle='#D20000'; ctx.fill(); ink(); ctx.stroke();
+    ink(0.9); ctx.beginPath(); ctx.moveTo(x-5.6,y+6.4); ctx.quadraticCurveTo(x,y+9.6,x+5.6,y+6.4); ctx.stroke(); nose(x+0.2,y+1.8,2.7); }},
+  knipoog:{name:'Knipoog',draw(x,y,f,lk){ cheeks(x,y+4.5,1.9); const o=f>0?1:-1; logoEye(x+o*2.2,y-4.6,0.6,o*0.18,lk); closedEye(x-o*3,y-3.4,2.3,false);
+    brow(x+o*3.2,y-10.4,0.6,o*0.35); brow(x-o*3,y-8.4,0.6,-o*0.1);
+    ctx.save(); ctx.translate(x+o*1.6,y+8.6); ctx.rotate(o*0.25); ell(0,0,1.7,2.4,0,'#F78DA7'); ctx.restore(); jSmile(x,y+6.9,0.7); nose(x+0.2,y+2.1,2.9); }},
+  lief:{name:'Lief',draw(x,y,f,lk){ cheeks(x,y+3.8,2.6,.75); for(const s of [-1,1]){ const ex=x+s*3.4+lk.x*0.6, ey=y-3.6+lk.y*0.4; circ(ex,ey,2.5,INK,false); circ(ex-0.8,ey-0.9,0.9,'#fff',false); circ(ex+0.7,ey+0.8,0.45,'#fff',false);
+      ink(0.8); ctx.beginPath(); ctx.moveTo(ex+s*2,ey-1.6); ctx.lineTo(ex+s*3.3,ey-2.8); ctx.moveTo(ex+s*2.4,ey-0.6); ctx.lineTo(ex+s*3.8,ey-1.2); ctx.stroke(); }
+    ink(1.2); ctx.strokeStyle='#D20000'; ctx.beginPath(); ctx.arc(x+0.2,y+5.8,2.6,0.2*Math.PI,0.8*Math.PI); ctx.stroke(); nose(x+0.2,y+1.9,2.4); }},
+  grijns:{name:'Grijns',draw(x,y,f,lk){ logoEye(x-2,y-4.9,0.56,-0.18,lk); logoEye(x+2.2,y-4.9,0.56,0.18,lk); brow(x-3,y-10.6,0.6,-0.5); brow(x+3.2,y-10.6,0.6,0.5);
+    ctx.beginPath(); ctx.moveTo(x-6.6,y+5); ctx.quadraticCurveTo(x,y+6.4,x+6.6,y+5); ctx.quadraticCurveTo(x,y+12.4,x-6.6,y+5); ctx.closePath(); ctx.fillStyle='#fff'; ctx.fill(); ctx.strokeStyle='#D20000'; ctx.lineWidth=1.6; ctx.stroke(); ink(0.9); ctx.stroke();
+    ink(0.6); ctx.beginPath(); ctx.moveTo(x-5.6,y+6.8); ctx.quadraticCurveTo(x,y+8,x+5.6,y+6.8); for(const k of [-3,-1,1,3]){ ctx.moveTo(x+k*1.3,y+5.6); ctx.lineTo(x+k*1.3,y+9.2-Math.abs(k)*0.35); } ctx.stroke(); nose(x+0.2,y+2.1,2.9); }},
+};
+
+/* ---------- body ---------- */
+// Straight legs, no knees. Walking: each foot is planted and slides back (stance), then swings
+// forward in a small arc. Jumping: pass air:true + vy (negative = going up); squash 0..1 crouches
+// before take-off and after landing.
+const STRIDE=8, LIFT=3, ANKLE=2.2, HIP=-13.4, RAISE=-1.8;
+const smooth=t=>t*t*(3-2*t), clamp=(v,a,b)=>Math.max(a,Math.min(b,v)), mix=(a,b,k)=>a+(b-a)*k;
+function footAt(q){ q=((q%1)+1)%1;
+  if(q<0.6){ const t=q/0.6; return {x:STRIDE/2-STRIDE*t, y:0, roll:t>0.75?(t-0.75)*1.6:0}; }
+  const t=(q-0.6)/0.4; return {x:-STRIDE/2+STRIDE*smooth(t), y:-LIFT*Math.sin(Math.PI*t), roll:0.35*Math.sin(Math.PI*t)}; }
+function legTo(hx,hy,fx,fy,roll,face,back){ seg(hx,hy,fx,fy,back?'#2a5ca8':'#3a7bd5',2.6);
+  ctx.save(); ctx.translate(fx,fy); ctx.rotate(-face*roll); ell(face*2.5,-0.1,4.8,2.3,0,back?'#a30000':'#D20000'); ell(face*3.6,-1,1.4,0.7,face*0.3,'rgba(255,255,255,.55)',false); ctx.restore(); }
+function armTo(sx,sy,hx,hy,back){ seg(sx,sy,hx,hy,back?'#a30000':'#D20000',2.4); circ(hx,hy,2.3,back?'#e9e4e0':'#fff'); }
+function hat(x,y,face){ ctx.save(); ctx.translate(x,y); ctx.rotate(face*0.3); ctx.beginPath(); ctx.moveTo(-5.5,2); ctx.lineTo(5.5,2); ctx.lineTo(0,-11); ctx.closePath(); ctx.fillStyle='#FCB900'; ctx.fill(); ink(); ctx.stroke();
+  ctx.strokeStyle='#D20000'; ctx.lineWidth=1.4; ctx.beginPath(); ctx.moveTo(-3.6,-2.5); ctx.lineTo(3,-1); ctx.moveTo(-1.6,-7); ctx.lineTo(2,-6); ctx.stroke(); circ(0,-11.5,2,'#D20000'); ctx.restore(); }
+
+window.CLOWN_FACES=Object.fromEntries(Object.entries(FACES).map(([k,v])=>[k,v.name]));
+window.drawClown=function(c,o){ ctx=c; const face=o.face||1, p=o.p||0, air=!!o.air, walking=!!o.walking&&!air, lk=o.lk||{x:0.6,y:0.5}, t=o.t||0;
+  const vy=o.vy||0, sq=clamp(o.squash||0,0,1), k=clamp((vy+3)/6,0,1), st=air?clamp(-vy/8,0,1):0; // k: 0 rising .. 1 falling; st: take-off stretch
+  const bob=walking?0.75*Math.cos(4*Math.PI*p)+0.3:air?0:0.35*Math.sin(t*0.05)*(1-sq);
+  const lift=air?-st*1.2:0, drop=sq*4.2, hy=HIP+bob+drop+lift;
+  const nX=-face*1.6, bX=face*1.6; // near hip / far hip
+  let N,B;
+  if(air){ N={x:mix(face*3.8,face*2.2,k),y:hy+mix(6.6,11.6,k),r:mix(0.5,-0.2,k)}; B={x:mix(-face*1,-face*3.2,k),y:hy+mix(9.6,11.2,k),r:mix(0.35,-0.15,k)}; }
+  else if(walking){ const fn=footAt(p), fb=footAt(p+0.5); N={x:nX+face*fn.x,y:-ANKLE+fn.y,r:fn.roll}; B={x:bX+face*fb.x,y:-ANKLE+fb.y,r:fb.roll}; }
+  else { N={x:nX-face*sq*1.8,y:-ANKLE,r:0}; B={x:bX+face*sq*1.8,y:-ANKLE,r:0}; }
+  ctx.save();
+  legTo(bX,hy,B.x,B.y,B.r,face,true);
+  legTo(nX,hy,N.x,N.y,N.r,face,false);
+  // upper body: bob/crouch, then squash (crouch, landing) or stretch (take-off) around the hips
+  ctx.translate(0,bob+RAISE+drop+lift); ctx.translate(0,HIP); ctx.scale(1+0.12*sq-0.06*st,1-0.13*sq+0.1*st); ctx.translate(0,-HIP);
+  ctx.rotate(walking?face*0.05:air?face*mix(-0.04,0.06,k):-face*0.06*sq);
+  const SY=-21.2, hand=(s,ang)=>({x:s*5.6+Math.sin(ang)*6.6*face,y:SY+Math.cos(ang)*6.6});
+  let hB,hN;
+  // in the air the hands go up and out (rising) or flap out sideways (falling), clear of the collar and head
+  if(air){ const w=Math.sin(t*0.5)*1.6*k; hB={x:face*mix(12.5,12,k),y:mix(-31,-19,k)-w}; hN={x:-face*mix(12.5,12,k),y:mix(-31,-19,k)+w}; }
+  else { const sw=walking?Math.cos(2*Math.PI*p)*0.65:0.06*Math.sin(t*0.05), back=-0.8*sq; hB=hand(face,sw+back); hN=hand(-face,-sw+back); }
+  if(!air) armTo(face*5.6,SY,hB.x,hB.y,true);
+  ctx.beginPath(); ctx.moveTo(-6.5,-24); ctx.quadraticCurveTo(-9.5,-12,-6,-10); ctx.lineTo(6,-10); ctx.quadraticCurveTo(9.5,-12,6.5,-24); ctx.closePath(); ctx.fillStyle='#D20000'; ctx.fill(); ink(); ctx.stroke();
+  for(const [dx,dy] of [[-3,-20],[2.5,-17],[-1,-13.5],[4,-22],[-4.5,-15]]) circ(dx,dy,1.1,'#fff',false);
+  circ(face*0.4,-19,1.2,'#FCB900'); circ(face*0.4,-14.5,1.2,'#FCB900');
+  if(!air) armTo(-face*5.6,SY,hN.x,hN.y,false);
+  for(let i=0;i<7;i++){ const a=Math.PI*(0.08+i*0.84/6); circ(-Math.cos(a)*7,-24+Math.sin(a)*1.2,2.2,i%2?'#8ED1FC':'#fff'); }
+  if(air){ armTo(face*5.6,SY,hB.x,hB.y,true); armTo(-face*5.6,SY,hN.x,hN.y,false); }
+  for(const s2 of [-1,1]) for(let i=0;i<3;i++) circ(s2*(10.5+i*0.6)+face*0.5,-40+i*3.4+(air?mix(1.5,-1.5,k)*(i+1)*0.4:0),2.8,'#FF8A1F');
+  const hx=face*0.6, hyH=-35.5; circ(hx,hyH,11,SKIN);
+  FACES[o.style||'lach'].draw(face*1.6,hyH,face,air?{x:lk.x,y:mix(-1,1,k)}:lk);
+  hat(face*1.5,-46.5+(air?mix(0,-1.2,k):0),face);
+  ctx.restore(); };
+})();
+const cv=document.getElementById('cv'), ctx=cv.getContext('2d'), STY=Object.keys(CLOWN_FACES);
+let t=0, p=0;
+function frame(){ t+=1; p=(p+0.019)%1; const W=cv.width, col=W/6; ctx.fillStyle='#FFF6F3'; ctx.fillRect(0,0,W,cv.height);
+  ctx.fillStyle='#f1d9d4'; ctx.fillRect(0,600,W,4);
+  const lk={x:Math.sin(t*0.02)*1.1,y:Math.sin(t*0.013+1)*0.8};
+  STY.forEach((s,i)=>{ const cx=col*i+col/2;
+    ctx.save(); ctx.beginPath(); ctx.rect(cx-col/2+4,14,col-8,262); ctx.clip(); ctx.translate(cx,150); ctx.scale(6.6,6.6); ctx.translate(-1.6,35.5); drawClown(ctx,{face:1,style:s,lk,t}); ctx.restore();
+    ctx.fillStyle=s==='lach'?'#D20000':'#1A1414'; ctx.font='600 22px system-ui,sans-serif'; ctx.textAlign='center'; ctx.fillText(CLOWN_FACES[s]+(s==='lach'?' (gekozen)':''),cx,302);
+    ctx.save(); ctx.translate(cx,600); ctx.scale(4,4); drawClown(ctx,{face:1,style:s,p,walking:true,lk,t}); ctx.restore(); });
+  requestAnimationFrame(frame); }
+requestAnimationFrame(frame);
+</script></body></html>

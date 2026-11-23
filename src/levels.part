@@ -1,0 +1,83 @@
+
+/* ================= GAMES & LEVELS =================
+   Nine games, three levels each. FIXED_GAME is null in artifact.html (all games, with a game
+   switcher) and is rewritten by build_site.py to one game id per website page.
+   Level-only fields (name, sub, segs, night, diff, bpm/tr overrides) are merged over the game
+   fields into the flat LEVELS list that the flow code uses. */
+const FIXED_GAME=null;
+const GAMES=[
+ {id:'platformer',name:'De winkel',style:'Platformer',type:'platform',song:'feest',bpm:150,tr:0,
+  blurb:'Spring als clowntje door de winkel, over de spelden heen, en pak alle kaartjes.',
+  hint:'◀ ▶ lopen, ▲/spatie springen (ingedrukt houden = hoger). Spring over de spelden en pak de kaartjes.',
+  levels:[
+   {name:'Openingstijd',sub:'makkelijk',segs:SEGS_P1,night:false,diff:{enemySpd:1.1,moverRate:0.020}},
+   {name:'Koopavond',sub:'gemiddeld',segs:SEGS_P2,night:false,diff:{enemySpd:1.75,moverRate:0.029}},
+   {name:'Het magazijn bij nacht',sub:'moeilijk',segs:SEGS_P3,night:true,bpm:168,tr:2,diff:{enemySpd:1.9,moverRate:0.032}},
+  ]},
+ {id:'flappy',name:'Ballonvlucht',style:'Flappy',type:'flappy',song:'feest',bpm:160,tr:3,
+  blurb:'Flap tussen de rollen cadeaupapier door en vang de kaartjes in de vlucht.',
+  hint:'Tik of druk op ▲/spatie om te flappen. Vlieg tussen de rollen cadeaupapier door en pak de kaartjes.',
+  levels:[
+   {name:'Zacht briesje',sub:'makkelijk',diff:{gapH:280,gapStep:3,gapMin:250,gateDx:360,speed0:2.2,speedInc:0.06,speedMax:3.0}},
+   {name:'Stevige wind',sub:'gemiddeld',diff:{gapH:238,gapStep:5,gapMin:210,gateDx:315,speed0:2.65,speedInc:0.1,speedMax:3.9}},
+   {name:'Storm',sub:'moeilijk',diff:{gapH:230,gapStep:5,gapMin:200,gateDx:300,speed0:2.8,speedInc:0.11,speedMax:4.2}},
+  ]},
+ {id:'snake',name:'De ballonnenslang',style:'Snake',type:'snake',song:'feest',bpm:140,tr:-2,
+  blurb:'Loop voorop in de polonaise: elk kaartje zet een ballon achter je aan. Ontwijk de spelden op de winkelvloer.',
+  hint:'Stuur met de pijltjes. Eet de kaartjes, mijd de spelden, de muur en je eigen ballonnen.',
+  levels:[
+   {name:'Op je gemak',sub:'makkelijk',diff:{speed0:15,speedMin:11,pinsPerItem:1,coinEvery:300}},
+   {name:'Drukte in de winkel',sub:'gemiddeld',diff:{speed0:13,speedMin:9,pinsPerItem:2,coinEvery:300}},
+   {name:'Speldenkussen',sub:'moeilijk',diff:{speed0:11,speedMin:7,pinsPerItem:3,coinEvery:240}},
+  ]},
+ {id:'tetris',name:'Dozen inpakken',style:'Tetris',type:'tetris',song:'tetris',bpm:150,tr:0,
+  blurb:'Stapel de dozen strak in. Elke volle rij is een verzonden bestelling.',
+  hint:'◀ ▶ schuiven, ▲ draaien, ▼ sneller, spatie laten vallen. Elke volle rij is een verzonden bestelling.',
+  levels:[
+   {name:'Rustige ochtend',sub:'makkelijk',diff:{interval0:72,intervalMin:36,intervalStep:3,lockDelay:40,garbage:0}},
+   {name:'Middagdrukte',sub:'gemiddeld',diff:{interval0:64,intervalMin:24,intervalStep:3,lockDelay:34,garbage:0}},
+   {name:'Voor 15 uur besteld!',sub:'moeilijk',diff:{interval0:52,intervalMin:16,intervalStep:4,lockDelay:26,garbage:2}},
+  ]},
+ {id:'memory',name:'Kaartjes zoeken',style:'Memory',type:'memory',song:'feest',bpm:120,tr:5,
+  blurb:'Onthoud waar de kaartjes liggen en zoek alle tien de paren. Pas op voor de spelden.',
+  hint:'Klik of tik op een kaart (of pijltjes + spatie). Zoek de paren, mijd de spelden en grijp niet te vaak mis.',
+  levels:[
+   {name:'Kijkdag',sub:'makkelijk',diff:{peek:300,flipBack:70,missBudget:14,pins:0}},
+   {name:'Koopjesjacht',sub:'gemiddeld',diff:{peek:200,flipBack:50,missBudget:10,pins:2}},
+   {name:'Speld in de hooiberg',sub:'moeilijk',diff:{peek:120,flipBack:35,missBudget:7,pins:3}},
+  ]},
+  {id:'winkelmandje',name:'Winkelmandje',style:'Vangen',type:'catch',song:'feest',bpm:146,tr:2,
+  blurb:'Vang de kaartjes die van de schappen vallen in je winkelmandje, en ontwijk de spelden.',
+  hint:'◀ ▶ lopen, of tik waar je heen wilt. Vang de kaartjes in je mandje en laat de spelden naast je vallen.',
+  levels:[
+   {name:'Eerste klanten',sub:'makkelijk',diff:{fall0:2.0,fallMax:3.0,spawnEvery:70,pinShare:0.15,sway:0}},
+   {name:'Uitverkoop',sub:'gemiddeld',diff:{fall0:2.6,fallMax:3.8,spawnEvery:55,pinShare:0.25,sway:0.5}},
+   {name:'Black Friday',sub:'moeilijk',diff:{fall0:3.2,fallMax:4.6,spawnEvery:42,pinShare:0.35,sway:1}},
+  ]},
+  {id:'bezorgroute',name:'Bezorgroute',style:'Puzzel',type:'route',song:'feest',bpm:132,tr:-3,
+  blurb:'Draai de wegstukken zodat de bestelbus van J-Martens alle tien de klanten bereikt. Pas op voor punaises op de weg.',
+  hint:'Tik op een wegstuk om het te draaien (of pijltjes + spatie). Verbind de klanten met het magazijn en houd de punaises van de weg.',
+  levels:[
+   {name:'Om de hoek',sub:'makkelijk',diff:{cols:7,rows:5,pins:0,decoys:2,time:180}},
+   {name:'Door het dorp',sub:'gemiddeld',diff:{cols:9,rows:6,pins:3,decoys:6,time:160}},
+   {name:'Heel Raamsdonk rond',sub:'moeilijk',diff:{cols:11,rows:7,pins:6,decoys:10,time:140}},
+  ]},
+  {id:'prikken',name:'Ballonnen prikken',style:'Prikken',type:'pop',song:'feest',bpm:156,tr:1,
+  blurb:'Nu mag jij een keer prikken: prik de ballonnen met een kaartje eraan, maar niet de rode J-ballonnen van de winkel.',
+  hint:'Tik op een ballon om hem te prikken (of pijltjes + spatie). Laat geen kaartje wegvliegen en blijf van de rode J-ballonnen af.',
+  levels:[
+   {name:'Feestje',sub:'makkelijk',diff:{rise:1.2,spawnEvery:50,decoyShare:0.2,radius:30,sway:0.3,missBudget:8}},
+   {name:'Verjaardag',sub:'gemiddeld',diff:{rise:1.6,spawnEvery:42,decoyShare:0.35,radius:26,sway:0.6,missBudget:6}},
+   {name:'Bruiloft',sub:'moeilijk',diff:{rise:2.1,spawnEvery:36,decoyShare:0.5,radius:22,sway:1.0,missBudget:4}},
+  ]},
+  {id:'vakkenvullen',name:'Vakken vullen',style:'Sorteren',type:'sort',song:'feest',bpm:138,tr:-1,
+  blurb:'Stuur elk product naar het vak met de goede categorie. Zo leer je de hele winkel kennen. Spelden gaan in het afval.',
+  hint:'Geen haast: tik op het goede vak (of kies met ◀ ▶ en laat vallen met ▼ of spatie). Spelden horen in het afval.',
+  levels:[
+   {name:'Rustig aan',sub:'makkelijk',diff:{bins:3,pinShare:0.1,missBudget:6,pics:1}},
+   {name:'Spitsuur',sub:'gemiddeld',diff:{bins:4,pinShare:0.2,missBudget:5,pics:1}},
+   {name:'Inventarisatie',sub:'moeilijk',diff:{bins:5,pinShare:0.3,missBudget:4,pics:0}},
+  ]},
+];
+const ACTIVE_GAMES=FIXED_GAME?GAMES.filter(g=>g.id===FIXED_GAME):GAMES;
+const LEVELS=ACTIVE_GAMES.flatMap((g,gi)=>g.levels.map((l,li)=>({...g,...l,game:g,gi,li,levels:undefined})));

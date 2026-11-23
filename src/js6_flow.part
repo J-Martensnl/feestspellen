@@ -1,0 +1,121 @@
+
+/* ================= GAME FLOW ================= */
+const MODES={platform:Platform,flappy:Flappy,snake:Snake,tetris:Tetris,memory:Memory,catch:Catch,route:Route,pop:Pop,sort:Sort};
+function hideAll(){ $('ovTitle').hidden=true; $('ovWin').hidden=true; $('ovOver').hidden=true; }
+function showTitle(){ state='title'; musicStop(); hideAll(); $('ovTitle').hidden=false; document.querySelectorAll('#nav button').forEach(b=>b.classList.toggle('active',b.hasAttribute('data-home'))); }
+function play(idx,fresh){
+  initAudio(); hideAll(); if(fresh) totalScore=0;
+  lvIdx=idx; LV=LEVELS[idx]; MODE=MODES[LV.type];
+  items.forEach(it=>it.got=false); slotsEl.querySelectorAll('.slot').forEach(s=>s.classList.remove('got','pop'));
+  lives=3; coinsGot=0; frames=0; collected=0; particles=[]; popText=null; deadT=0; invT=0; shakeT=0; tot={items:10,coins:0};
+  keys.l=keys.r=keys.u=keys.d=keys.j=false;
+  MODE.init(); buildTouch(); updHud(); state='play'; musicStart(LV.song,LV.bpm,LV.tr);
+  toast(`Level ${LV.li+1} · ${LV.name} (${LV.sub})`,2600);
+  renderNav();
+  cv.focus();
+}
+function restart(){ play(lvIdx,LV.li===0); }
+const lastOfGame=()=>LV.li===LV.game.levels.length-1;
+function nextOrAgain(){ if(!lastOfGame()) play(lvIdx+1,false); else play(lvIdx-LV.li,true); }
+function win(){
+  if(state!=='play') return; state='win'; musicStop(); SFX.win(); burst(W/2,H/2,60,CONF,1.6); if(THEME==='carnaval') burst(W/2,H/2,50,CARN,1.4); if(THEME==='pasen') burst(W/2,H/2,50,PAAS,1.4); if(THEME==='sint') burst(W/2,H/2,40,['#7B4A26','#A0632F','#5C3317'],1.3); // pepernoten
+  const sec=Math.floor(frames/60), bonus=Math.max(0,300-sec)*2, score=collected*100+coinsGot*10+bonus; totalScore+=score;
+  const last=lastOfGame(), nxt=last?null:LV.game.levels[LV.li+1];
+  let rate=collected===tot.items?'Feestbeest! Alles gevonden 🎉':collected>=Math.ceil(tot.items*0.7)?'Bijna compleet — nog even terugkomen?':'Kom je nog eens langs?';
+  // records: best score and most stars per level; "Nieuw record" when an earlier best is beaten
+  const stars=starsOf(collected,3-lives), recs=records(), k=recKey(LV), prev=recs[k]&&typeof recs[k].score==='number'?recs[k]:null, beat=!!prev&&score>prev.score;
+  recs[k]={score:Math.max(score,prev?prev.score:0),stars:Math.max(stars,prev&&prev.stars||0),frames:prev&&!beat?prev.frames:frames,date:new Date().toISOString().slice(0,10)};
+  const saved=store.set(REC_KEY,recs); if(beat) rate='Nieuw record! 🎉';
+  $('winSub').textContent=last?`${LV.game.name} uitgespeeld · bedankt voor je bezoek`:`level ${LV.li+1} klaar · volgende: "${nxt.name}" (${nxt.sub})`;
+  $('btnAgain').textContent=last?'Nog een keer vanaf level 1':'Naar level '+(LV.li+2)+' →';
+  $('receipt').innerHTML=`<div class="h"><img src="img/logo.png" alt="J-Martens.nl" style="height:34px;width:auto;display:block;margin:0 auto 4px"><small>online feestwinkel · Raamsdonk</small><small>kassabon · ${LV.game.name} · level ${LV.li+1}: ${LV.name}</small></div>`+
+    CATS.map((c,i)=>{const g=items[i].got; return `<div class="line${g?'':' miss'}"><span>${g?'✓':'–'} ${c.name}</span><span>${g?'1x':'niet gevonden'}</span></div>`;}).join('')+
+    `<div style="height:6px"></div>`+MODE.stats().map(([k,v])=>`<div class="line"><span>${k}</span><span>${v}</span></div>`).join('')+
+    `<div class="line"><span>Tijd</span><span>${fmt(frames)}</span></div><div class="line"><span>Snelheidsbonus</span><span>${bonus}</span></div>`+
+    `<div class="line tot"><span>Feestscore level ${LV.li+1}</span><span>${score}</span></div>`+(prev?`<div class="line"><span>Jouw record</span><span>${prev.score}</span></div>`:'')+
+    `<div class="stars" title="★ uitgespeeld · ★★ alle 10 kaartjes · ★★★ zonder een ballon te verliezen">${starHtml(stars)}</div>`+(last?`<div class="line tot"><span>Totaal ${LV.game.name}</span><span>${totalScore}</span></div>`:'')+`<div class="rate">${rate}</div>`;
+  if(saved){ renderNav(); updRecords(); }
+  setTimeout(()=>{ $('ovWin').hidden=false; },900);
+}
+// best score and stars on the level cards and the title-screen picker; nothing without storage
+function updRecords(){ const recs=records();
+  document.querySelectorAll('[data-rec]').forEach(el=>{ const r=recs[recKey(LEVELS[+el.dataset.rec])]; el.innerHTML=r?`${starHtml(Math.min(3,Math.max(1,r.stars|0)))} record ${r.score|0}`:''; });
+  const clr=$('btnClearRec'); if(clr) clr.hidden=!Object.keys(recs).length; }
+function step(){ if(state!=='play') return; frames++; if(frames%60===0) timeEl.textContent=fmt(frames); stepFx(); MODE.step(); }
+let last=0,acc=0,tick=0;
+function loop(ts){ if(!last) last=ts; let dt=ts-last; last=ts; if(dt>100) dt=100; acc+=dt; let n=0; while(acc>=1000/60&&n<4){ step(); acc-=1000/60; n++; tick++; }
+  ctx.clearRect(0,0,W,H); if(MODE) MODE.draw(tick); else { ctx.fillStyle='#FFF6F3'; ctx.fillRect(0,0,W,H); } drawSeason(tick); requestAnimationFrame(loop); }
+
+/* ---------- input ---------- */
+const NAV=['Space','ArrowUp','ArrowDown','ArrowLeft','ArrowRight'];
+const KEYMAP={ArrowLeft:'l',KeyA:'l',ArrowRight:'r',KeyD:'r',ArrowUp:'u',KeyW:'u',ArrowDown:'d',KeyS:'d',Space:'j',KeyZ:'j'};
+function onKey(code,down){
+  if(down){
+    if(code==='KeyR'&&MODE){ restart(); return; } if(code==='KeyM'){ toggleMute(); return; }
+    if(code==='Enter'){ if(state==='title') start(); else if(state==='win') nextOrAgain(); else if(state==='over') restart(); return; }
+    if(state==='title'&&code==='Space'){ start(); return; } }
+  const k=KEYMAP[code]; if(k) keys[k]=down;
+  if(state==='play'&&MODE) MODE.key(code,down); }
+addEventListener('keydown',e=>{ const tag=(e.target&&e.target.tagName)||''; if(NAV.includes(e.code)&&!/^(INPUT|TEXTAREA|SELECT|BUTTON)$/.test(tag)) e.preventDefault(); if(e.repeat) return; onKey(e.code,true); });
+addEventListener('keyup',e=>onKey(e.code,false));
+addEventListener('blur',()=>{ keys.l=keys.r=keys.u=keys.d=keys.j=false; });
+document.addEventListener('visibilitychange',()=>{ if(document.hidden) keys.l=keys.r=keys.u=keys.d=keys.j=false; });
+cv.tabIndex=0; cv.addEventListener('pointerdown',e=>{ cv.focus(); initAudio(); if(state==='play'&&MODE&&MODE.tap){ const r=cv.getBoundingClientRect(); MODE.tap((e.clientX-r.left)*W/r.width,(e.clientY-r.top)*H/r.height); } }); // tap(x,y) in canvas pixels
+if((window.matchMedia&&matchMedia('(pointer:coarse)').matches)||/[?&]touch=1/.test(location.search||'')) document.body.classList.add('is-touch');
+function buildTouch(){ const L=$('touchL'),R=$('touchR'); L.innerHTML=''; R.innerHTML=''; document.body.classList.toggle('no-buttons',!MODE.buttons.length);
+  for(const b of MODE.buttons){ const el=document.createElement('button'); el.type='button'; el.textContent=b.label; el.setAttribute('aria-label',b.label); if(b.cls) el.className=b.cls;
+    el.addEventListener('pointerdown',e=>{ e.preventDefault(); initAudio(); MODE.touch(b.id,true); }); ['pointerup','pointercancel','pointerleave'].forEach(ev=>el.addEventListener(ev,e=>{ e.preventDefault(); MODE.touch(b.id,false); })); el.addEventListener('contextmenu',e=>e.preventDefault());
+    (b.side==='l'?L:R).appendChild(el); } }
+function toggleMute(){ muted=!muted; const b=$('btnMute'); b.textContent=muted?'🔇 Stil':'🔊 Geluid'; b.setAttribute('aria-pressed',String(muted)); }
+function start(){ play(0,true); }
+$('btnStart').onclick=start; $('btnAgain').onclick=nextOrAgain; $('btnRetry').onclick=restart; $('btnRestart').onclick=()=>{ if(MODE) restart(); else start(); }; $('btnMute').onclick=toggleMute;
+const logoLink=$('logoLink'); if(logoLink) logoLink.onclick=e=>{ e.preventDefault(); showTitle(); };
+// nav bar, title-screen picker and level cards, all generated from GAMES/LEVELS
+const nav=$('nav'); nav.querySelector('[data-home]').onclick=showTitle;
+const curGame=()=>LV?LV.game:ACTIVE_GAMES[0];
+const firstIdx=g=>LEVELS.findIndex(l=>l.game===g);
+function mkBtn(html,cls,on){ const b=document.createElement('button'); b.type='button'; b.innerHTML=html; if(cls) b.className=cls; b.onclick=on; return b; }
+function renderNav(){
+  const g=curGame();
+  [...nav.querySelectorAll('button:not([data-home])')].forEach(b=>b.remove());
+  if(!FIXED_GAME) for(const gm of ACTIVE_GAMES){ const b=mkBtn(gm.name,'game'+(gm===g?' cur':''),()=>play(firstIdx(gm),true)); b.dataset.game=gm.id; nav.appendChild(b); }
+  const recs=records();
+  g.levels.forEach((lv,li)=>{ const i=firstIdx(g)+li, r=recs[recKey(LEVELS[i])]; const b=mkBtn(`<span class="n">${li+1}</span>${lv.name}${r?` <span class="st" aria-label="${r.stars||1} van 3 sterren">${starHtml(r.stars||1)}</span>`:''}`,state==='play'&&i===lvIdx?'active':'',()=>play(i,li===0)); b.dataset.lvl=i; nav.appendChild(b); });
+}
+(function initPickers(){
+  const g=ACTIVE_GAMES[0];
+  const sub=$('titleSub'); if(sub) sub.textContent=FIXED_GAME?`${g.name} · ${g.style} · 3 levels`:`${ACTIVE_GAMES.length} spellen · 3 levels per spel · 1 winkelwagen`;
+  const txt=$('titleText'); if(txt&&FIXED_GAME) txt.innerHTML=`Jij bent het clowntje van J-Martens. Verzamel in elk level alle <b>10 productcategorieën</b>, ontwijk de <b>spelden</b> (anders knapt er een van je drie ballonnen) en reken af bij de <b>kassa</b>. Drie levels: <b>makkelijk</b>, <b>gemiddeld</b> en <b>moeilijk</b>.`;
+  // an explicit ?thema= stays on when going back to the hub
+  const tq=/[?&]thema=(sint|kerst|carnaval|pasen|geen)(?![\w])/.exec((typeof location!=='undefined'&&location.search)||'');
+  if(tq) document.querySelectorAll('a[href$=".html"]').forEach(a=>a.setAttribute('href',a.getAttribute('href')+'?thema='+tq[1]));
+  const season=$('season'), sl=seasonNow(); if(season&&sl){ season.textContent=sl; season.hidden=false; }
+  // "Speel als": het clowntje or het clownmeisje, each with a small drawing of the figure; remembered in this browser
+  const hp=$('heroPick'), heroBtns=[];
+  if(hp){ const lb=document.createElement('span'); lb.textContent='Speel als'; hp.appendChild(lb); for(const [w,label] of [['clown','Clowntje'],['meisje','Clownmeisje']]){
+      const b=document.createElement('button'); b.type='button'; b.setAttribute('role','radio'); const c=document.createElement('canvas'); c.width=68; c.height=88; b.appendChild(c); const t=document.createElement('span'); t.textContent=label; b.appendChild(t);
+      b.onclick=()=>{ setHero(w); showHero(); }; hp.appendChild(b); heroBtns.push({w,b,c}); } }
+  function showHero(){ for(const {w,b,c} of heroBtns){ const on=w===HERO; b.classList.toggle('on',on); b.setAttribute('aria-checked',String(on));
+      const g=c.getContext('2d'); if(g&&g.clearRect){ g.clearRect(0,0,68,88); withCtx(g,()=>drawClownHero(34,84,1.45,{who:w,face:1,t:0})); } }
+    const txt=$('titleText'); if(txt) txt.innerHTML=txt.innerHTML.replace(/het (clowntje|clownmeisje)/,heroName()); }
+  showHero();
+  const pick=$('lvlpick');
+  if(FIXED_GAME) g.levels.forEach((lv,li)=>pick.appendChild(mkBtn(`level ${li+1} · ${lv.sub} <span class="rec" data-rec="${li}"></span>`,'',()=>play(li,li===0))));
+  else ACTIVE_GAMES.forEach(gm=>pick.appendChild(mkBtn(gm.name,'',()=>play(firstIdx(gm),true))));
+  const cards=$('levelCards');
+  if(cards) LEVELS.forEach((lv,i)=>{ const c=mkBtn(`<span class="n">Level ${lv.li+1}</span> <span class="badge">${FIXED_GAME?lv.sub:lv.style+' · '+lv.sub}</span><div class="t">${lv.name}</div><div class="s">${lv.hint}</div><div class="rec" data-rec="${i}"></div>`,'lv',()=>{ play(i,lv.li===0); $('frame').scrollIntoView({behavior:'smooth',block:'center'}); }); cards.appendChild(c); });
+  const clr=mkBtn('Records wissen','linkbtn',null); clr.id='btnClearRec'; clr.hidden=true; pick.appendChild(clr); clr.onclick=()=>{ if(!window.confirm||window.confirm('Al je records en sterren in deze browser wissen?')){ store.del(REC_KEY); renderNav(); updRecords(); } };
+  renderNav(); updRecords();
+})();
+// typed slogan like the shop's header
+(()=>{ const words=['Carnaval','Abraham & Sarah','Babyshower','Ballondecoraties','Verjaardagen','Sinterklaas','Halloween']; const el=$('typed'); if(!el) return; let wi=0,ci=words[0].length,del=false,wait=90;
+  setInterval(()=>{ if(wait>0){ wait--; return; } const w=words[wi]; if(!del){ ci++; el.textContent=w.slice(0,ci); if(ci>=w.length){ del=true; wait=70; } } else { ci--; el.textContent=w.slice(0,ci); if(ci<=0){ del=false; wi=(wi+1)%words.length; wait=10; } } },55); })();
+function boot(){
+  if(document.fonts&&document.fonts.load) Promise.all([document.fonts.load('900 16px Grandstander'),document.fonts.load('700 16px Grandstander')]).catch(()=>{});
+  requestAnimationFrame(loop);
+  const m=/[?&]level=(\d+)/.exec(location.search||''); if(m){ const li=Math.min(ACTIVE_GAMES[0].levels.length,Math.max(1,+m[1]))-1; play(li,li===0); } // deep link: <spel>.html?level=2
+}
+window.__feest={play,step,records,starsOf,SONGS,get HERO(){return HERO},draw:t=>{ctx.clearRect(0,0,W,H); if(MODE) MODE.draw(t); drawSeason(t);},THEME,pickTheme,seasonLine,keys,key:onKey,debug:()=>MODE&&MODE.debug?MODE.debug():null,LEVELS,GAMES,ACTIVE_GAMES,FIXED_GAME,get state(){return state},get frames(){return frames},get collected(){return collected},get lives(){return lives},get deadT(){return deadT},get tot(){return tot},get lvIdx(){return lvIdx},get LV(){return LV},mode:()=>MODE,win,items};
+boot();
+})();
+</script>

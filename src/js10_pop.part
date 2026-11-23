@@ -1,0 +1,84 @@
+
+/* ================= MODE: POP (Ballonnen prikken) =================
+   A reversal: here the player holds the pin. Balloons rise from the bottom of the shop: card balloons (a category
+   card hangs under them), gold ballonnetjes (coins) and red J-Martens balloons (the shop's own decoration).
+   Tap a balloon to prick it (or move the crosshair with the arrows and press space). A card balloon drops its
+   card into the cart; pricking a shop balloon costs a balloon (life). A card balloon that floats away at the top
+   comes back later but counts as a miss; D.missBudget misses cost a balloon too. After ten cards the kassa
+   appears: prick it (or tap it) to pay. A tap pricks the balloon whose centre is nearest among those it touches,
+   so a shop balloon in front of a card balloon is a real risk. Knobs: rise, spawnEvery, decoyShare, radius,
+   sway, missBudget. */
+const Pop=(()=>{
+  const PANEL=150, CH_SPD=7, CARD_COLS=['#8ED1FC','#7BDCB5','#9B51E0','#F78DA7','#1E88E5','#FF8A3D']; // never red (shop) or gold (coin)
+  const PP={balloons:[],missed:[],spawnT:0,spawnN:0,misses:0,missTotal:0,popped:0,cx:W/2,cy:H/2,ptr:false,kassa:false,cheer:0,id:0};
+  let D=null;
+  const shuffleX=()=>PANEL+40+Math.random()*(W-2*PANEL-80);
+  function spawn(){
+    const n=PP.spawnN++, cardUp=PP.balloons.filter(b=>b.kind==='card').length;
+    let kind='coin', i=-1;
+    if(collected<tot.items&&cardUp<2&&n%3===0){ const want=PP.missed.length?PP.missed.shift():(items.find(it=>!it.got&&!PP.balloons.some(b=>b.i===it.i))||{}).i;
+      if(want!=null){ kind='card'; i=want; } }
+    if(kind==='coin'&&Math.random()<D.decoyShare*1.6) kind='shop';
+    const r=kind==='coin'?D.radius*0.75:D.radius;
+    PP.balloons.push({id:++PP.id,kind,i,x0:shuffleX(),x:0,y:H+r+10,r,v:D.rise*(0.85+Math.random()*0.3),ph:Math.random()*6,col:CARD_COLS[Math.floor(Math.random()*CARD_COLS.length)]});
+    if(kind==='coin') tot.coins++;
+  }
+  const xOf=b=>b.x0+D.sway*30*Math.sin(b.ph+b.y*0.02);
+  // a prick at (x,y) hits the balloon whose centre is nearest among those whose round body contains the point
+  function hitAt(x,y){ let best=null, bd=1e9; for(const b of PP.balloons){ const d=Math.hypot(x-b.x,y-b.y); if(d<=b.r*1.12&&d<bd){ bd=d; best=b; } } return best; }
+  function prick(x,y){
+    if(state!=='play'||deadT) return;
+    if(PP.kassa){ if(Math.abs(x-W/2)<90&&Math.abs(y-H/2)<90){ win(); } return; }
+    const b=hitAt(x,y); SFX.move(); if(!b) return;
+    PP.balloons=PP.balloons.filter(o=>o!==b); burst(b.x,b.y,14,[b.kind==='shop'?'#D20000':b.kind==='coin'?'#FCB900':b.col,'#fff'],0.9);
+    if(b.kind==='shop'){ die(b.x,b.y); return; }
+    PP.popped++; SFX.pop();
+    if(b.kind==='coin') collectCoin(b.x,b.y);
+    else { collectItem(b.i,b.x,b.y+b.r); PP.cheer=40; if(collected>=tot.items){ PP.kassa=true; PP.balloons=[]; toast('Alle kaartjes! Prik op de kassa 🛒'); } } }
+  function step(){
+    if(deadT){ afterDeath(); return; }
+    if(PP.cheer>0) PP.cheer--;
+    // keyboard crosshair
+    const kx=(keys.r?1:0)-(keys.l?1:0), ky=(keys.d?1:0)-(keys.u?1:0); if(kx||ky){ PP.ptr=false; PP.cx=Math.max(PANEL,Math.min(W-PANEL,PP.cx+kx*CH_SPD)); PP.cy=Math.max(60,Math.min(H-20,PP.cy+ky*CH_SPD)); }
+    if(PP.kassa) return;
+    if(++PP.spawnT>=D.spawnEvery){ PP.spawnT=0; spawn(); }
+    for(const b of PP.balloons){ b.y-=b.v; b.x=xOf(b); }
+    for(const b of PP.balloons.filter(b=>b.y<-b.r-60)){ PP.balloons=PP.balloons.filter(o=>o!==b);
+      if(b.kind==='card'){ PP.missed.push(b.i); PP.misses++; PP.missTotal++; SFX.lock(); if(PP.misses>=D.missBudget){ die(W/2,80); return; } } }
+  }
+  function respawn(){ PP.misses=0; PP.balloons=PP.balloons.filter(b=>b.kind!=='shop'); }
+  function balloon(b,t){ const {x,y,r}=b, col=b.kind==='shop'?'#D20000':b.kind==='coin'?'#FCB900':b.col;
+    ctx.strokeStyle='#5a4444'; ctx.lineWidth=1.2; ctx.beginPath(); ctx.moveTo(x,y+r*1.15); ctx.quadraticCurveTo(x+Math.sin(t*0.05+b.ph)*6,y+r*1.15+18,x,y+r*1.15+(b.kind==='card'?26:30)); ctx.stroke();
+    if(b.kind==='card') drawCard(b.i,x,y+r*1.15+44,0,0,38);
+    const g=ctx.createRadialGradient(x-r*0.35,y-r*0.4,1,x,y,r*1.25); g.addColorStop(0,'#fff'); g.addColorStop(0.25,col); g.addColorStop(1,col);
+    ctx.fillStyle=g; ctx.beginPath(); ctx.ellipse(x,y,r,r*1.15,0,0,Math.PI*2); ctx.fill(); ctx.fillStyle='rgba(0,0,0,.2)'; ctx.beginPath(); ctx.moveTo(x-3,y+r*1.12); ctx.lineTo(x+3,y+r*1.12); ctx.lineTo(x,y+r*1.3); ctx.closePath(); ctx.fill();
+    if(b.kind==='shop'){ ctx.fillStyle='#fff'; ctx.font=`900 ${Math.round(r*0.95)}px Grandstander, Impact, sans-serif`; ctx.textAlign='center'; ctx.fillText('J',x+1,y+r*0.32); ctx.textAlign='left'; } }
+  function draw(t){
+    const g=ctx.createLinearGradient(0,0,0,H); g.addColorStop(0,'#FFF6F3'); g.addColorStop(1,'#FFE4DE'); ctx.fillStyle=g; ctx.fillRect(0,0,W,H);
+    drawShelvesBg(0,false); drawBunting(t,0,false);
+    ctx.save(); let sx=0,sy=0; if(shakeT>0){ sx=(Math.random()-.5)*shakeT*0.8; sy=(Math.random()-.5)*shakeT*0.8; } ctx.translate(sx,sy);
+    for(const b of PP.balloons) balloon(b,t);
+    if(PP.kassa) drawKassa(W/2-32,H/2-40,t);
+    // the clown cheers in the corner, jumping when a card comes down
+    const air=PP.cheer>0; drawClownHero(PANEL/2,H-14-(air?Math.sin(PP.cheer/40*Math.PI)*26:0),1.3,{face:1,air,vy:air?(PP.cheer>20?-3:3):0,lk:{x:0.8,y:-0.6},t});
+    // side panel: misses and cards
+    const lx=PANEL/2; ctx.textAlign='center'; ctx.fillStyle='#5a4444'; ctx.font='700 15px Roboto, sans-serif'; ctx.fillText('Weggevlogen',lx,150); ctx.fillText('Kaartjes',W-lx,150);
+    ctx.fillStyle=PP.misses>=D.missBudget-2?'#D20000':'#1A1414'; ctx.font='900 34px Grandstander, Impact, sans-serif'; ctx.fillText(PP.misses+'/'+D.missBudget,lx,192); ctx.fillStyle='#1A1414'; ctx.fillText(collected+'/'+tot.items,W-lx,192);
+    ctx.fillStyle='#5a4444'; ctx.font='400 12px Roboto, sans-serif'; ctx.fillText('dan kost het',lx,214); ctx.fillText('een ballon',lx,229);
+    ctx.fillStyle='#D20000'; ctx.font='700 13px Roboto, sans-serif'; ctx.fillText('Niet in de',W-lx,240); ctx.fillText('rode J-ballonnen',W-lx,256); ctx.fillText('prikken!',W-lx,272);
+    ctx.textAlign='left';
+    if(PP.kassa){ ctx.fillStyle='#D20000'; ctx.font='900 22px Grandstander, Impact, sans-serif'; ctx.textAlign='center'; ctx.fillText('Prik op de kassa om af te rekenen',W/2,H/2+70); ctx.textAlign='left'; }
+    if(!PP.ptr){ ctx.save(); ctx.translate(PP.cx,PP.cy); ctx.strokeStyle='#1A1414'; ctx.lineWidth=2; ctx.beginPath(); ctx.arc(0,0,14,0,Math.PI*2); ctx.moveTo(-20,0); ctx.lineTo(-8,0); ctx.moveTo(8,0); ctx.lineTo(20,0); ctx.moveTo(0,-20); ctx.lineTo(0,-8); ctx.moveTo(0,8); ctx.lineTo(0,20); ctx.stroke(); ctx.rotate(0.6); drawPin(14,20,0.8); ctx.restore(); }
+    drawFx(); ctx.restore();
+  }
+  return {
+    buttons:[], // on a phone you tap the balloons themselves
+    init(){ D=LV.diff; Object.assign(PP,{balloons:[],missed:[],spawnT:D.spawnEvery-20,spawnN:0,misses:0,missTotal:0,popped:0,cx:W/2,cy:H/2,ptr:false,kassa:false,cheer:0,id:0}); tot.coins=0; },
+    respawn, step, draw,
+    key(code,down){ if(down&&(code==='Space'||code==='KeyZ')) prick(PP.cx,PP.cy); },
+    touch(id,down){ if(id==='j'&&down) prick(PP.cx,PP.cy); },
+    tap(x,y){ PP.ptr=true; PP.cx=x; PP.cy=y; prick(x,y); },
+    stats(){ return [['Geprikt',PP.popped],['Weggevlogen',PP.missTotal],['Ballonnen over',lives]]; },
+    debug(){ return {PP,diff:D,consts:{PANEL,W,H},hitAt,xOf}; },
+  };
+})();

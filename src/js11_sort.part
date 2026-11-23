@@ -1,0 +1,84 @@
+
+/* ================= MODE: SORT (Vakken vullen) =================
+   A conveyor brings one product at a time, shown large, and it waits above a row of bins, each labelled with a
+   category name, plus "Afval" on the right. There is no hurry: choose a bin and the product drops into it (tap a
+   bin, or arrows to choose and down/space to drop). The first time
+   a category lands in its own bin its card is collected and that bin gets the label of a category still to find;
+   later ones are ballonnetjes. A product in the wrong bin (or in Afval) is a miss, D.missBudget misses cost a
+   balloon; a pin must go into Afval, a pin in a product bin pops a balloon. Players learn the shop's ten category
+   names. Knobs: bins, pinShare, missBudget, pics (bins also show the category picture). Difficulty comes from
+   more bins, more pins and fewer misses, never from speed. */
+const Sort=(()=>{
+  const PANEL=140, TOPY=150, BINY=372, BINH=110, WAITY=246, DROP=16, BIG=2;
+  const SO={labels:[],cur:null,next:null,misses:0,missTotal:0,sorted:0,winT:0,drops:[],flash:null,n:0};
+  let D=null;
+  const cols=()=>D.bins+1, colW=()=>(W-2*PANEL)/cols(), colX=c=>PANEL+(c+0.5)*colW(), AFVAL=()=>D.bins;
+  const todo=()=>items.filter(it=>!it.got).map(it=>it.i);
+  function relabel(b){ const free=todo().filter(i=>!SO.labels.includes(i)); if(free.length) SO.labels[b]=free[Math.floor(Math.random()*free.length)]; }
+  function makeProduct(){ const n=SO.n++;
+    if(n>0&&Math.random()<D.pinShare) return {kind:'pin',i:-1};
+    const open=SO.labels.filter(i=>!items[i].got); const pool=open.length&&Math.random()<0.8?open:SO.labels;
+    return {kind:'cat',i:pool[Math.floor(Math.random()*pool.length)]}; }
+  function launch(){ const p=SO.next||makeProduct(); SO.next=makeProduct(); SO.cur={...p,col:Math.floor(cols()/2)-(cols()%2?0:1),y:WAITY,fast:false,x:colX(Math.floor(cols()/2)-(cols()%2?0:1))}; }
+  function land(){ const p=SO.cur; SO.cur=null; const c=p.col, x=colX(c);
+    SO.drops.push({p,x,t:0});
+    if(p.kind==='pin'){ if(c===AFVAL()){ SO.sorted++; SFX.lock(); SO.flash={c,ok:true,t:30}; } else { SO.flash={c,ok:false,t:40}; die(x,BINY); return; } }
+    else if(c!==AFVAL()&&SO.labels[c]===p.i){ SO.sorted++; SO.flash={c,ok:true,t:30};
+      if(!items[p.i].got){ collectItem(p.i,x,BINY); relabel(c); if(SO.next&&SO.next.kind==='cat'&&!SO.labels.includes(SO.next.i)) SO.next=makeProduct(); /* the waiting one lost its bin */ if(collected>=tot.items){ SO.winT=100; SO.next=null; toast('Alles op zijn plek! 🛒'); return; } }
+      else collectCoin(x,BINY); }
+    else { SO.misses++; SO.missTotal++; SO.flash={c,ok:false,t:40}; SFX.lock(); if(SO.misses>=D.missBudget){ die(x,BINY); return; } }
+    launch(); }
+  function step(){
+    if(deadT){ afterDeath(); return; }
+    for(const d of SO.drops) d.t++; SO.drops=SO.drops.filter(d=>d.t<24); if(SO.flash&&--SO.flash.t<=0) SO.flash=null;
+    if(SO.winT){ if(--SO.winT===0) win(); return; }
+    if(!SO.cur) launch();
+    const p=SO.cur; p.x+=(colX(p.col)-p.x)*0.35; // it waits (bobbing a little) until a bin is chosen
+    if(p.fast){ p.y+=DROP; if(p.y>=BINY-30) land(); } else p.y=WAITY+Math.sin(frames*0.06)*3;
+  }
+  function respawn(){ SO.misses=0; SO.cur=null; }
+  function move(dc){ if(!SO.cur||deadT||SO.winT) return; SO.cur.col=Math.max(0,Math.min(cols()-1,SO.cur.col+dc)); SFX.move(); }
+  function drop(){ if(SO.cur&&!deadT) SO.cur.fast=true; }
+  function product(p,x,y,t,s=1){ if(p.kind==='pin'){ ctx.fillStyle='#fff'; rr(x-24*s,y-24*s,48*s,48*s,8); ctx.fill(); ctx.strokeStyle='#8f97a3'; ctx.lineWidth=2; rr(x-24*s,y-24*s,48*s,48*s,8); ctx.stroke(); drawPin(x,y,1.3*s); return; }
+    ctx.fillStyle='#C9A26B'; rr(x-28*s,y-26*s,56*s,52*s,5); ctx.fill(); ctx.fillStyle='#B08850'; ctx.fillRect(x-28*s,y-6*s,56*s,4*s);
+    const im=IMG[p.i], q=38*s; if(im.complete&&im.naturalWidth){ ctx.save(); rr(x-q/2,y-q/2,q,q,4); ctx.clip(); ctx.drawImage(im,x-q/2,y-q/2,q,q); ctx.restore(); } else { ctx.fillStyle='#fff'; ctx.fillRect(x-q/2,y-q/2,q,q); } }
+  function wrapText(txt,x,y,maxW,lh){ const words=txt.split(' '); let line='', n=0; for(const w of words){ const tst=line?line+' '+w:w; if(line&&ctx.measureText(tst).width>maxW){ ctx.fillText(line,x,y+n*lh); n++; line=w; } else line=tst; } ctx.fillText(line,x,y+n*lh); }
+  function draw(t){
+    const g=ctx.createLinearGradient(0,0,0,H); g.addColorStop(0,'#FFF6F3'); g.addColorStop(1,'#FFE4DE'); ctx.fillStyle=g; ctx.fillRect(0,0,W,H);
+    drawShelvesBg(0,false); drawBunting(t,0,false);
+    ctx.save(); let sx=0,sy=0; if(shakeT>0){ sx=(Math.random()-.5)*shakeT*0.8; sy=(Math.random()-.5)*shakeT*0.8; } ctx.translate(sx,sy);
+    // conveyor from the left into the chute, with the next product waiting
+    const cw=colW(), chuteX=colX(Math.floor(cols()/2)-(cols()%2?0:1));
+    ctx.fillStyle='#1A1414'; rr(30,118,chuteX-30,14,7); ctx.fill(); ctx.fillStyle='#555'; for(let x=40-((t*1.5)%24);x<chuteX;x+=24){ ctx.beginPath(); ctx.arc(x,125,4,0,Math.PI*2); ctx.fill(); }
+    if(SO.next&&!SO.winT) product(SO.next,chuteX-120,96,t,0.9);
+    // bins
+    for(let c=0;c<cols();c++){ const x=PANEL+c*cw+6, w=cw-12, af=c===AFVAL(), fl=SO.flash&&SO.flash.c===c;
+      ctx.fillStyle=af?'#9aa1ab':'#fff'; rr(x,BINY,w,BINH,10); ctx.fill(); ctx.lineWidth=3; ctx.strokeStyle=fl?(SO.flash.ok?'#28A745':'#D20000'):af?'#6b7280':'#D20000'; rr(x,BINY,w,BINH,10); ctx.stroke();
+      ctx.fillStyle=af?'#fff':'#D20000'; ctx.font='900 15px Grandstander, sans-serif'; ctx.textAlign='center';
+      if(af){ ctx.fillText('Afval',x+w/2,BINY+30); ctx.save(); ctx.translate(x+w/2,BINY+70); drawPin(0,0,1); ctx.restore(); }
+      else { const i=SO.labels[c]; wrapText(CATS[i].name,x+w/2,BINY+26,w-14,17);
+        if(D.pics){ const im=IMG[i], q=Math.min(54,w-20); if(im.complete&&im.naturalWidth){ ctx.save(); rr(x+w/2-q/2,BINY+BINH-q-6,q,q,5); ctx.clip(); ctx.drawImage(im,x+w/2-q/2,BINY+BINH-q-6,q,q); ctx.restore(); } }
+        if(items[i].got){ ctx.fillStyle='#28A745'; ctx.fillText('✓',x+w-14,BINY+20); } }
+      ctx.textAlign='left'; }
+    // where the product will land, and the product itself
+    if(SO.cur){ const p=SO.cur; ctx.fillStyle='rgba(210,0,0,.12)'; ctx.fillRect(PANEL+p.col*cw+6,TOPY,cw-12,BINY-TOPY); product(p,p.x,p.y,t,BIG); }
+    for(const d of SO.drops) product(d.p,d.x,BINY-26+d.t*2,t,Math.max(0.3,BIG*(1-d.t/24)));
+    // side panels and the clown
+    const lx=PANEL/2; ctx.textAlign='center'; ctx.fillStyle='#5a4444'; ctx.font='700 15px Roboto, sans-serif'; ctx.fillText('Verkeerd',lx,150); ctx.fillText('Kaartjes',W-lx,150);
+    ctx.fillStyle=SO.misses>=D.missBudget-2?'#D20000':'#1A1414'; ctx.font='900 34px Grandstander, Impact, sans-serif'; ctx.fillText(SO.misses+'/'+D.missBudget,lx,192); ctx.fillStyle='#1A1414'; ctx.fillText(collected+'/'+tot.items,W-lx,192);
+    ctx.fillStyle='#5a4444'; ctx.font='400 12px Roboto, sans-serif'; ctx.fillText('dan kost het',lx,214); ctx.fillText('een ballon',lx,229); ctx.fillText('spelden in',W-lx,214); ctx.fillText('het afval!',W-lx,229);
+    ctx.textAlign='left';
+    drawClownHero(lx,H-14,1.15,{face:1,t,lk:{x:0.9,y:0.2}});
+    drawFx(); ctx.restore();
+  }
+  return {
+    buttons:[], // tap the bins
+    init(){ D=LV.diff; const start=[...Array(10).keys()]; for(let n=start.length-1;n>0;n--){ const j=Math.floor(Math.random()*(n+1)); [start[n],start[j]]=[start[j],start[n]]; }
+      Object.assign(SO,{labels:start.slice(0,D.bins),cur:null,next:null,misses:0,missTotal:0,sorted:0,winT:0,drops:[],flash:null,n:0}); tot.coins=0; launch(); },
+    respawn, step, draw,
+    key(code,down){ if(!down) return; if(code==='ArrowLeft'||code==='KeyA') move(-1); else if(code==='ArrowRight'||code==='KeyD') move(1); else if(code==='ArrowDown'||code==='KeyS'||code==='Space'||code==='KeyZ') drop(); },
+    touch(){}, tap(x){ if(!SO.cur||deadT||SO.winT||SO.cur.fast) return; const c=Math.floor((x-PANEL)/colW()); if(c<0||c>=cols()) return; SO.cur.col=c; drop(); }, /* one tap: into that bin */
+    stats(){ return [['Goed gesorteerd',SO.sorted],['Verkeerd',SO.missTotal],['Ballonnen over',lives]]; },
+    debug(){ return {SO,diff:D,colX,cols,AFVAL:AFVAL()}; },
+  };
+})();

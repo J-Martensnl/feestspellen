@@ -1,0 +1,140 @@
+
+/* ================= MODE: ROUTE (Bezorgroute) =================
+   A village on a grid. The J-Martens warehouse sits on the left edge; ten customer houses each wait for one
+   category card. Every road tile can be turned a quarter (tap it, or cursor + space). As soon as the roads
+   connect the warehouse to a house's door, the van delivers: that card is collected. A road that connects a
+   punaise (pin) to the warehouse gives the van a flat tyre: a balloon pops and the pin is swept away. The
+   clock runs down (D.time seconds); when it runs out a balloon pops and the clock starts again.
+   The generator builds a random spanning tree from the warehouse to all ten houses (avoiding pin cells),
+   prunes dead ends, adds decoy tiles and pins, then turns every tile at random: the original rotation is the
+   known solution (the bot uses it). Knobs: cols, rows, pins, decoys, time (seconds). */
+const Route=(()=>{
+  const N=1,E=2,S=4,Wd=8, DIRS=[[N,0,-1],[E,1,0],[S,0,1],[Wd,-1,0]];
+  const rotM=(m,r)=>{ r=((r%4)+4)%4; for(let k=0;k<r;k++) m=((m<<1)|(m>>3))&15; return m; };
+  const opp=d=>((d<<2)|(d>>2))&15;
+  const RT={cols:0,rows:0,ts:64,x0:0,y0:0,cells:[],ware:0,timer:0,rotations:0,cur:0,ptr:false,vans:[],winT:0,flat:null};
+  let D=null;
+  const idx=(c,r)=>r*RT.cols+c, colOf=i=>i%RT.cols, rowOf=i=>Math.floor(i/RT.cols);
+  const turnable=t=>t.k==='road'||t.k==='extra';
+  const maskAt=(i,rotOf)=>{ const t=RT.cells[i]; if(t.k==='house'||t.k==='ware') return t.base; if(!turnable(t)) return 0; return rotM(t.base,rotOf?rotOf(i,t):t.rot); };
+  // everything the warehouse reaches: houses whose door is reached, and the first pin on the network
+  function reach(rotOf){
+    const from=new Map([[RT.ware,-1]]), q=[RT.ware], houses=[]; let pin=-1;
+    while(q.length){ const a=q.shift(), ma=maskAt(a,rotOf);
+      for(const [d,dx,dy] of DIRS){ if(!(ma&d)) continue; const c=colOf(a)+dx, r=rowOf(a)+dy; if(c<0||r<0||c>=RT.cols||r>=RT.rows) continue;
+        const b=idx(c,r); if(from.has(b)||!(maskAt(b,rotOf)&opp(d))) continue; from.set(b,a); const tb=RT.cells[b];
+        if(tb.k==='house'){ houses.push(b); continue; } if(tb.k==='ware') continue; if(tb.pin&&pin<0) pin=b; q.push(b); } }
+    return {houses,pin,from}; }
+  const shuffle=a=>{ for(let n=a.length-1;n>0;n--){ const j=Math.floor(Math.random()*(n+1)); [a[n],a[j]]=[a[j],a[n]]; } return a; };
+  function gen(){
+    const C=D.cols, R=D.rows; RT.cols=C; RT.rows=R;
+    for(let tries=0;tries<800;tries++){
+      const mid=R>>1, ware=idx(0,mid), start=idx(1,mid);
+      RT.cells=Array.from({length:C*R},()=>({k:'empty',base:0,rot:0,sol:0,pin:false,i:-1,done:false})); RT.ware=ware;
+      Object.assign(RT.cells[ware],{k:'ware',base:E});
+      const free=shuffle([...Array(C*R).keys()].filter(i=>i!==ware&&i!==start));
+      const pins=new Set(free.slice(0,D.pins)), houses=free.slice(D.pins,D.pins+10), isHouse=new Set(houses);
+      // random spanning tree (Prim) from the first road cell; houses are leaves, pin cells are left out
+      const par=new Map([[start,ware]]), front=[];
+      const grow=a=>{ for(const [,dx,dy] of DIRS){ const c=colOf(a)+dx, r=rowOf(a)+dy; if(c<0||r<0||c>=C||r>=R) continue; const b=idx(c,r); if(b===ware||pins.has(b)||par.has(b)) continue; front.push([a,b]); } };
+      grow(start);
+      while(front.length){ const [a,b]=front.splice(Math.floor(Math.random()*front.length),1)[0]; if(par.has(b)) continue; par.set(b,a); if(!isHouse.has(b)) grow(b); }
+      if(houses.some(h=>!par.has(h))) continue;
+      // prune road branches that lead to no house
+      for(let changed=true;changed;){ changed=false; const kids=new Map(); for(const [b,a] of par) kids.set(a,(kids.get(a)||0)+1);
+        for(const b of [...par.keys()]) if(b!==start&&!isHouse.has(b)&&!kids.get(b)){ par.delete(b); changed=true; } }
+      for(const [b,a] of par){ const d=DIRS.find(([,dx,dy])=>colOf(a)+dx===colOf(b)&&rowOf(a)+dy===rowOf(b))[0];
+        if(a!==ware){ RT.cells[a].k='road'; RT.cells[a].base|=d; } if(isHouse.has(b)) RT.cells[b].base=opp(d); else { RT.cells[b].k='road'; RT.cells[b].base|=opp(d); } }
+      const cats=shuffle([...Array(10).keys()]); houses.forEach((h,n)=>Object.assign(RT.cells[h],{k:'house',i:cats[n]}));
+      // decoys and pins on cells that are not part of the route
+      const spare=shuffle(free.filter(i=>RT.cells[i].k==='empty'&&!pins.has(i))).slice(0,D.decoys);
+      for(const i of spare) Object.assign(RT.cells[i],{k:'extra',base:[5,3,3,7][Math.floor(Math.random()*4)]});
+      // a pin is a dead-end side road next to the route; its safe rotation (sol) points at a cell no road can ever
+      // turn towards (the edge, grass or a house), so a pin at sol can never join the network, whatever else turns
+      let pinsOk=true;
+      for(const i of pins){ const roadNb=DIRS.some(([,dx,dy])=>{ const c=colOf(i)+dx, r=rowOf(i)+dy; return c>=0&&r>=0&&c<C&&r<R&&RT.cells[idx(c,r)].k==='road'; });
+        const safe=[0,1,2,3].filter(rot=>{ const [,dx,dy]=DIRS[rot], c=colOf(i)+dx, r=rowOf(i)+dy; if(c<0||r<0||c>=C||r>=R) return true; const k=RT.cells[idx(c,r)].k; return k==='empty'||k==='house'; });
+        if(!roadNb||!safe.length){ pinsOk=false; break; }
+        Object.assign(RT.cells[i],{k:'extra',pin:true,base:N,sol:safe[Math.floor(Math.random()*safe.length)]}); }
+      if(!pinsOk) continue;
+      // turn everything at random; each pin gets a "safe" rotation (sol) that keeps it off the solved network
+      let ok=false;
+      for(let s=0;s<40&&!ok;s++){
+        for(const t of RT.cells) if(turnable(t)) t.rot=Math.floor(Math.random()*4);
+        const solved=(i,t)=>t.k==='road'?0:t.pin?t.sol:t.rot;
+        const fin=reach(solved); if(fin.houses.length!==10||fin.pin>=0) continue;
+        const now=reach(); if(now.houses.length||now.pin>=0) continue;
+        ok=true; }
+      if(ok) return true;
+    }
+    return false; }
+  function layout(){ const ts=Math.min(72,Math.floor(Math.min(600/RT.cols,400/RT.rows))); RT.ts=ts; RT.x0=Math.round((W-ts*RT.cols)/2); RT.y0=Math.round(104+(420-ts*RT.rows)/2); }
+  const cx=i=>RT.x0+(colOf(i)+0.5)*RT.ts, cy=i=>RT.y0+(rowOf(i)+0.5)*RT.ts;
+  function pathTo(from,h){ const p=[]; for(let k=h;k!=null&&k>=0;k=from.get(k)) p.unshift(k); return p; }
+  function deliver(){ const r=reach();
+    if(r.pin>=0){ RT.cells[r.pin].pin=false; RT.flat={i:r.pin,t:60}; die(cx(r.pin),cy(r.pin)); return; }
+    for(const h of r.houses){ const t=RT.cells[h]; if(t.done) continue; t.done=true; collectItem(t.i,cx(h),cy(h)-RT.ts*0.2); RT.vans.push({path:pathTo(r.from,h),t:0}); }
+    if(collected>=tot.items&&!RT.winT){ RT.winT=150; toast('Alles bezorgd! Terug naar de winkel 🚚'); } }
+  function turn(i){ if(state!=='play'||deadT||RT.winT) return; const t=RT.cells[i]; if(!t||!turnable(t)) return; t.rot=(t.rot+1)%4; RT.rotations++; SFX.rotate(); deliver(); }
+  function step(){
+    if(deadT){ afterDeath(); return; }
+    for(const v of RT.vans) v.t++; RT.vans=RT.vans.filter(v=>v.t<v.path.length*6+40); if(RT.flat&&--RT.flat.t<=0) RT.flat=null;
+    if(RT.winT){ if(--RT.winT===0) win(); return; }
+    if(--RT.timer<=0){ RT.timer=0; die(W/2,H/2); }
+  }
+  function respawn(){ RT.timer=Math.round(D.time*60); deliver(); }
+  const hit=(x,y)=>{ const c=Math.floor((x-RT.x0)/RT.ts), r=Math.floor((y-RT.y0)/RT.ts); return c>=0&&r>=0&&c<RT.cols&&r<RT.rows?idx(c,r):-1; };
+  function moveCur(dx,dy){ RT.ptr=false; const c=Math.min(RT.cols-1,Math.max(0,colOf(RT.cur)+dx)), r=Math.min(RT.rows-1,Math.max(0,rowOf(RT.cur)+dy)); RT.cur=idx(c,r); SFX.move(); }
+
+  /* ---------- drawing ---------- */
+  function grass(x,y,s,i){ ctx.fillStyle=(colOf(i)+rowOf(i))%2?'#DCEFD3':'#E4F4DC'; ctx.fillRect(x,y,s,s); }
+  function road(x,y,s,m,lit){ const w=s*0.38, c=s/2; ctx.fillStyle=lit?'#555a63':'#8b9099';
+    ctx.fillRect(x+c-w/2,y+c-w/2,w,w);
+    for(const [d,dx,dy] of DIRS) if(m&d){ if(dx) ctx.fillRect(dx>0?x+c:x,y+c-w/2,c,w); else ctx.fillRect(x+c-w/2,dy>0?y+c:y,w,c); }
+    ctx.strokeStyle=lit?'#FCB900':'rgba(255,255,255,.8)'; ctx.lineWidth=Math.max(1.5,s*0.035); ctx.setLineDash([s*0.08,s*0.08]); ctx.beginPath();
+    for(const [d,dx,dy] of DIRS) if(m&d){ ctx.moveTo(x+c,y+c); ctx.lineTo(x+c+dx*c,y+c+dy*c); } ctx.stroke(); ctx.setLineDash([]); }
+  function house(x,y,s,t,lit){ const c=s/2;
+    road(x,y,s,t.base,lit); // the stub from the door to the road
+    const hw=s*0.62, hx=x+c-hw/2, hy=y+s*0.32; ctx.fillStyle='#fff'; ctx.fillRect(hx,hy,hw,s*0.5); ctx.strokeStyle='#5a4444'; ctx.lineWidth=1.5; ctx.strokeRect(hx,hy,hw,s*0.5);
+    ctx.fillStyle=CONF[(t.i*3+1)%CONF.length]==='#FFFFFF'?'#D20000':CONF[(t.i*3+1)%CONF.length]; ctx.beginPath(); ctx.moveTo(hx-s*0.06,hy); ctx.lineTo(x+c,y+s*0.08); ctx.lineTo(hx+hw+s*0.06,hy); ctx.closePath(); ctx.fill(); ctx.stroke();
+    const im=IMG[t.i], q=s*0.34; ctx.save(); ctx.globalAlpha=t.done?0.45:1; if(im.complete&&im.naturalWidth) ctx.drawImage(im,x+c-q/2,hy+s*0.07,q,q); else { ctx.fillStyle='#FFD9D3'; ctx.fillRect(x+c-q/2,hy+s*0.07,q,q); } ctx.restore();
+    if(t.done){ ctx.fillStyle='#28A745'; ctx.beginPath(); ctx.arc(x+s*0.8,y+s*0.24,s*0.13,0,Math.PI*2); ctx.fill(); ctx.strokeStyle='#fff'; ctx.lineWidth=2.5; ctx.beginPath(); ctx.moveTo(x+s*0.74,y+s*0.24); ctx.lineTo(x+s*0.79,y+s*0.29); ctx.lineTo(x+s*0.87,y+s*0.19); ctx.stroke(); } }
+  function warehouse(x,y,s,lit){ road(x,y,s,E,lit); const w=s*0.72; ctx.fillStyle='#D20000'; ctx.fillRect(x+s*0.08,y+s*0.22,w,s*0.6); ctx.fillStyle='#9E0000'; ctx.fillRect(x+s*0.04,y+s*0.16,w+s*0.08,s*0.09);
+    ctx.fillStyle='#fff'; ctx.font=`900 ${Math.round(s*0.34)}px Grandstander, Impact, sans-serif`; ctx.textAlign='center'; ctx.fillText('J',x+s*0.44,y+s*0.62); ctx.textAlign='left';
+    ctx.fillStyle='#FCB900'; ctx.fillRect(x+s*0.3,y+s*0.68,s*0.28,s*0.14); }
+  function van(x,y,s,dir){ ctx.save(); ctx.translate(x,y); ctx.scale(dir<0?-1:1,1); const u=s/60;
+    ctx.fillStyle='#D20000'; rr(-20*u,-13*u,30*u,20*u,3*u); ctx.fill(); rr(8*u,-8*u,13*u,15*u,3*u); ctx.fill(); ctx.fillStyle='#8ED1FC'; ctx.fillRect(12*u,-6*u,7*u,6*u);
+    ctx.fillStyle='#fff'; ctx.font=`900 ${Math.round(12*u)}px Grandstander, Impact, sans-serif`; ctx.textAlign='center'; ctx.fillText('J',-5*u,1*u); ctx.textAlign='left';
+    ctx.fillStyle='#1A1414'; for(const wx of [-12,12]){ ctx.beginPath(); ctx.arc(wx*u,8*u,4*u,0,Math.PI*2); ctx.fill(); } ctx.restore(); }
+  function draw(t){
+    const g=ctx.createLinearGradient(0,0,0,H); g.addColorStop(0,'#FFF6F3'); g.addColorStop(1,'#FFE4DE'); ctx.fillStyle=g; ctx.fillRect(0,0,W,H); drawBunting(t,0,false);
+    ctx.save(); let sx=0,sy=0; if(shakeT>0){ sx=(Math.random()-.5)*shakeT*0.8; sy=(Math.random()-.5)*shakeT*0.8; } ctx.translate(sx,sy);
+    const s=RT.ts, net=reach();
+    ctx.fillStyle='rgba(90,68,68,.12)'; rr(RT.x0-10,RT.y0-10,s*RT.cols+20,s*RT.rows+20,12); ctx.fill();
+    RT.cells.forEach((c,i)=>{ const x=RT.x0+colOf(i)*s, y=RT.y0+rowOf(i)*s, lit=net.from.has(i); grass(x,y,s,i);
+      if(c.k==='empty'){ if((i*7)%5===0){ ctx.fillStyle='#9CCC8C'; ctx.beginPath(); ctx.arc(x+s*0.3,y+s*0.35,s*0.12,0,Math.PI*2); ctx.arc(x+s*0.68,y+s*0.62,s*0.09,0,Math.PI*2); ctx.fill(); } return; }
+      if(c.k==='ware') warehouse(x,y,s,true); else if(c.k==='house') house(x,y,s,c,lit&&c.done); else road(x,y,s,rotM(c.base,c.rot),lit);
+      if(c.pin) drawPin(x+s/2,y+s/2-2,s/44); });
+    if(RT.flat){ const i=RT.flat.i; ctx.fillStyle='#D20000'; ctx.font='900 16px Grandstander, sans-serif'; ctx.textAlign='center'; ctx.fillText('Lekke band!',cx(i),cy(i)-s*0.55); ctx.textAlign='left'; }
+    for(const v of RT.vans){ const k=Math.min(v.path.length-1,v.t/6), a=Math.floor(k), b=Math.min(v.path.length-1,a+1), f=k-a; const x=cx(v.path[a])+(cx(v.path[b])-cx(v.path[a]))*f, y=cy(v.path[a])+(cy(v.path[b])-cy(v.path[a]))*f; van(x,y-2,s*0.9,cx(v.path[b])>=cx(v.path[a])?1:-1); }
+    if(!RT.vans.length) van(cx(RT.ware)+s*0.1,cy(RT.ware)+s*0.62,s*0.55,1);
+    if(!RT.ptr&&!RT.winT){ ctx.strokeStyle='#FCB900'; ctx.lineWidth=4; rr(RT.x0+colOf(RT.cur)*s+2,RT.y0+rowOf(RT.cur)*s+2,s-4,s-4,8); ctx.stroke(); }
+    // side panels: delivered (left), clock (right)
+    const lx=Math.max(70,RT.x0/2), rx=W-lx, secs=Math.ceil(RT.timer/60); ctx.textAlign='center';
+    ctx.fillStyle='#5a4444'; ctx.font='700 15px Roboto, sans-serif'; ctx.fillText('Bezorgd',lx,RT.y0+30); ctx.fillText('Tijd',rx,RT.y0+30);
+    ctx.fillStyle='#1A1414'; ctx.font='900 34px Grandstander, Impact, sans-serif'; ctx.fillText(collected+'/'+tot.items,lx,RT.y0+72);
+    ctx.fillStyle=secs<=20?'#D20000':'#1A1414'; ctx.fillText(Math.floor(secs/60)+':'+String(secs%60).padStart(2,'0'),rx,RT.y0+72);
+    ctx.fillStyle='#5a4444'; ctx.font='400 12px Roboto, sans-serif'; ctx.fillText('tik op een weg',lx,RT.y0+104); ctx.fillText('om hem te draaien',lx,RT.y0+119); ctx.fillText('dan kost het',rx,RT.y0+104); ctx.fillText('een ballon',rx,RT.y0+119);
+    ctx.textAlign='left'; drawFx(); ctx.restore();
+  }
+  return {
+    buttons:[],
+    init(){ D=LV.diff; gen(); layout(); RT.timer=Math.round(D.time*60); RT.rotations=0; RT.vans=[]; RT.winT=0; RT.flat=null; RT.cur=idx(1,RT.rows>>1); RT.ptr=false; tot.coins=0; },
+    respawn, step, draw,
+    key(code,down){ if(!down) return; const m={ArrowLeft:[-1,0],KeyA:[-1,0],ArrowRight:[1,0],KeyD:[1,0],ArrowUp:[0,-1],KeyW:[0,-1],ArrowDown:[0,1],KeyS:[0,1]}[code];
+      if(m){ moveCur(m[0],m[1]); return; } if(code==='Space'||code==='KeyZ') turn(RT.cur); },
+    touch(){}, tap(x,y){ RT.ptr=true; const i=hit(x,y); if(i>=0){ RT.cur=i; turn(i); } },
+    stats(){ return [['Bezorgd',collected+' klanten'],['Wegstukken gedraaid',RT.rotations],['Ballonnen over',lives]]; },
+    debug(){ return {RT,diff:D,reach,rotM,turnable,cx,cy,idx}; },
+  };
+})();
