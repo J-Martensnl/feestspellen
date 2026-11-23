@@ -45,12 +45,13 @@ node tools/solve_final.js [SEGS_P2]                              # rapport van d
 ```
 Python 3 zonder extra pakketten; Node 18 of hoger voor de tools.
 
-## Statistieken (staat uit)
+## Statistieken
 De spellen kunnen anoniem tellen hoe vaak een pagina wordt geopend en hoe een level afloopt
 (`spel/<spel>/<level>/start`, `…/gehaald`, `…/gameover`, plus speelduur in vijf klassen en het
 aantal sterren). Geen cookies, geen speler-ID, niets in de opslag van de browser. Aanzetten: vul
 in `build_site.py` bij `STATS` het teladres van een GoatCounter-site in
-(`https://CODE.goatcounter.com/count`) en bouw opnieuw. Leeg = er wordt niets verstuurd. Op
+(`https://CODE.goatcounter.com/count`) en bouw opnieuw. Leeg = er wordt niets verstuurd.
+Nu ingesteld op de site `feestspellen` bij GoatCounter. Op
 localhost en vanaf `file:` wordt nooit geteld. Zet bij het aanzetten een regel in de
 privacyverklaring van de winkel.
 

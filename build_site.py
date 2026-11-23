@@ -15,7 +15,7 @@ import os, re, shutil, zipfile
 VERSION = '2.3'
 # Anonymous statistics (GoatCounter, hosted or self-hosted): the count address, e.g. 'https://CODE.goatcounter.com/count'.
 # Empty = the built pages send nothing. artifact.html (tests, development) never sends anything.
-STATS = ''
+STATS = 'https://feestspellen.goatcounter.com/count'
 assert STATS == '' or re.fullmatch(r"https://[a-z0-9.-]+/count", STATS), STATS
 STATS_MARK = "/*STATS-URL*/''"
 DATE = '22 november 2026'
@@ -212,6 +212,11 @@ GOED OM TE WETEN
     https://j-martens.nl/feestrun/?thema=carnaval (blijft aan als je doorklikt).
   - Op het titelscherm kiest de speler het clowntje of het clownmeisje. De keuze,
     de records en de sterren per level worden alleen in de eigen browser bewaard.
+  - Statistieken: de spellen tellen anoniem hoe vaak een pagina wordt geopend en
+    hoe een level afloopt (gestart, gehaald, game over). Geen cookies en geen
+    gegevens over de speler; er is geen cookiemelding voor nodig. De telling loopt
+    via GoatCounter (goatcounter.com). Zet daarover een regel in de
+    privacyverklaring van de website.
   - Teksten aanpassen: open het spelbestand in een teksteditor; de categorienamen
     staan bovenin het script bij "const CATS", de spel- en levelnamen en de uitleg
     bij "const GAMES".

@@ -405,7 +405,7 @@ const recKey=lv=>lv.game.id+':'+lv.li;
    Counts page views and how levels end (start / gehaald / gameover), nothing about the player: no cookie, no id,
    nothing in storage. STATS_URL is filled in by build_site.py (STATS); empty means nothing is ever sent.
    Sent as a GoatCounter hit: p = path or event name, e = event, t = title, r = referrer, s = screen width. */
-const STATS_URL='';
+const STATS_URL='https://feestspellen.goatcounter.com/count';
 function statSend(p,ev){ try{ if(!STATS_URL||typeof location==='undefined') return;
     if(location.protocol==='file:'||/(localhost$|^127\.|^10\.|^192\.168\.|^0\.0\.0\.0$)/.test(location.hostname||'')) return;
     const d={p,e:ev?'true':'',t:ev?'':document.title||'',r:ev?'':document.referrer||'',s:(window.screen&&window.screen.width)||'',b:0,rnd:Math.random().toString(36).slice(2,7)};
